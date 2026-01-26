@@ -36,7 +36,11 @@ export const metadata: Metadata = {
     address: false,
     telephone: false,
   },
-  metadataBase: new URL('https://phantomchat.app'),
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_APP_URL && process.env.NEXT_PUBLIC_APP_URL.startsWith('http')
+      ? process.env.NEXT_PUBLIC_APP_URL
+      : 'https://phantomchat.app'
+  ),
   alternates: {
     canonical: '/',
     languages: {
@@ -47,7 +51,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     locale: 'fr_FR',
-    url: 'https://phantomchat.app',
+    url: process.env.NEXT_PUBLIC_APP_URL || 'https://phantomchat.app',
     title: 'Phantom Chat - Le Chat crypté et chiffré ultime',
     description:
       'Secure, self-destructing chat rooms with end-to-end encryption. No accounts, no logs, no traces. Military-grade privacy for your conversations.',

@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     locale: 'fr_FR',
-    url: 'https://phantomchat.app/room',
+    url: `${process.env.NEXT_PUBLIC_APP_URL || 'https://phantomchat.app'}/room`,
     title: 'Join Secure Room - Phantom Chat',
     description:
       "You've been invited to a private encrypted chat. End-to-end encryption, self-destructing messages.",
