@@ -19,7 +19,7 @@ export const useCreateRoom = () => {
     // Effet secondaire en cas de succès (status 200-299)
     onSuccess: (res) => {
       if (res.data?.roomId) {
-        router.push(`/room/${res.data.roomId}`);
+        router.push(`/room/${res?.data?.roomId}`);
       }
     },
 
