@@ -12,6 +12,7 @@ import type { App } from '../../app/api/[[...slugs]]/route';
  * - 'use client' components
  */
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000';
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ?? 'https://phantomchat-bice.vercel.app';
 
 export const client = treaty<App>(API_URL).api;
