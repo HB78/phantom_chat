@@ -122,11 +122,23 @@ const rooms = new Elysia({ prefix: '/room' })
 
       // Parser les cles (avec fallback pour ancien format)
       let otherKeys: { ecdh?: string; kyber?: string };
+      const rawData = otherKeyEntry[1];
+      console.log(`   📄 Raw data type:`, typeof rawData, rawData);
+      
       try {
-        otherKeys = JSON.parse(otherKeyEntry[1]);
+        // Si c'est deja un objet (Redis peut auto-parser), on l'utilise directement
+        if (typeof rawData === 'object' && rawData !== null) {
+          otherKeys = rawData as { ecdh?: string; kyber?: string };
+          console.log(`   ✅ Using object directly:`, otherKeys);
+        } else {
+          // Sinon, on parse le JSON
+          otherKeys = JSON.parse(rawData);
+          console.log(`   ✅ Parsed JSON:`, otherKeys);
+        }
       } catch {
         // Ancien format: juste une string (cle ECDH seule)
-        otherKeys = { ecdh: otherKeyEntry[1], kyber: undefined };
+        otherKeys = { ecdh: rawData as string, kyber: undefined };
+        console.log(`   ⚠️  Using legacy format`);
       }
 
       // Verifier s'il y a un ciphertext Kyber pour moi
