@@ -40,7 +40,7 @@ export async function generateKeyPair(): Promise<CryptoKeyPair> {
   return await crypto.subtle.generateKey(
     { name: 'ECDH', namedCurve: 'P-256' },
     true, // extractable = true pour pouvoir exporter la cle publique
-    ['deriveKey']
+    ['deriveKey', 'deriveBits'] // deriveBits necessaire pour le mode hybride
   );
 }
 
