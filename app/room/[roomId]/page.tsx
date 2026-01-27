@@ -96,11 +96,10 @@ export default function HomeRoom() {
         shouldBeInitiator: otherKeyData.shouldBeInitiator,
       });
 
-      isProcessingRef.current = true;
-
       try {
         // Si j'ai un ciphertext, je suis le DESTINATAIRE (responder)
         if (otherKeyData.kyberCiphertext) {
+          isProcessingRef.current = true;
           console.log('🔑 Processing as RESPONDER (received ciphertext)');
           await setOtherPublicKeys(
             { ecdh: otherKeyData.ecdh, kyber: otherKeyData.kyber },
@@ -110,6 +109,7 @@ export default function HomeRoom() {
         }
         // Sinon, si je dois etre l'INITIATEUR (selon le serveur)
         else if (otherKeyData.shouldBeInitiator) {
+          isProcessingRef.current = true;
           console.log('🔑 Processing as INITIATOR (will send ciphertext)');
           await setOtherPublicKeys({
             ecdh: otherKeyData.ecdh,
@@ -117,6 +117,7 @@ export default function HomeRoom() {
           });
           console.log('✅ Encryption ready as initiator!');
         } else {
+          // Ne PAS mettre isProcessingRef à true ici - permettre le retry au prochain refetch
           console.log('⏳ Waiting for initiator to send ciphertext...');
         }
       } catch (err) {
