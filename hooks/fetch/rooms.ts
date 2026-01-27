@@ -32,12 +32,23 @@ export const useSendMessage = () => {
       sender,
       text,
       roomId,
+      messageType = 'text',
+      imageMetadata,
     }: {
       sender: string;
       text: string;
       roomId: string;
+      messageType?: 'text' | 'image';
+      imageMetadata?: {
+        mimeType: string;
+        width: number;
+        height: number;
+      };
     }) => {
-      await client.messages.post({ sender, text }, { query: { roomId } });
+      await client.messages.post(
+        { sender, text, messageType, imageMetadata },
+        { query: { roomId } }
+      );
     },
 
     onError: (error) => {

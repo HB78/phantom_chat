@@ -198,7 +198,7 @@ const messages = new Elysia({ prefix: '/messages' })
   .post(
     '/',
     async ({ body, auth }) => {
-      const { sender, text } = body;
+      const { sender, text, messageType, imageMetadata } = body;
 
       const { roomId } = auth;
 
@@ -213,6 +213,8 @@ const messages = new Elysia({ prefix: '/messages' })
         text,
         timestamp: Date.now(),
         roomId,
+        messageType: messageType || 'text',
+        imageMetadata,
       };
 
       await redis.rpush(`messages:${roomId}`, {
@@ -230,7 +232,13 @@ const messages = new Elysia({ prefix: '/messages' })
       query: z.object({ roomId: z.string() }),
       body: z.object({
         sender: z.string().max(100),
-        text: z.string().max(5000), // Augmente pour les messages chiffres Kyber
+        text: z.string().max(5000000), // Augmente pour les images en base64 chiffrees
+        messageType: z.enum(['text', 'image']).optional(),
+        imageMetadata: z.object({
+          mimeType: z.string(),
+          width: z.number(),
+          height: z.number(),
+        }).optional(),
       }),
     }
   )
