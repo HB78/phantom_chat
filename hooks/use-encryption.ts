@@ -1,12 +1,12 @@
 import {
-  encryptMessage,
-  decryptMessage,
-  generateHybridKeyPair,
-  exportHybridPublicKeys,
-  deriveHybridSharedKeyAsInitiator,
-  deriveHybridSharedKeyAsResponder,
-  type HybridKeyPair,
-  type ExportedPublicKeys,
+    decryptMessage,
+    deriveHybridSharedKeyAsInitiator,
+    deriveHybridSharedKeyAsResponder,
+    encryptMessage,
+    exportHybridPublicKeys,
+    generateHybridKeyPair,
+    type ExportedPublicKeys,
+    type HybridKeyPair,
 } from '@/lib/crypto';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -59,13 +59,16 @@ export function useHybridEncryption(): UseHybridEncryptionReturn {
     initRef.current = true;
 
     const init = async () => {
+      console.log('🔐 Generating hybrid key pair (ECDH + Kyber)...');
       // Generer la paire de cles hybride (ECDH + Kyber)
       const keys = await generateHybridKeyPair();
       setKeyPair(keys);
+      console.log('✅ Key pair generated');
 
       // Exporter les cles publiques
       const exported = await exportHybridPublicKeys(keys);
       setPublicKeys(exported);
+      console.log('✅ Public keys exported and ready to send');
     };
     init();
   }, []);
@@ -82,6 +85,7 @@ export function useHybridEncryption(): UseHybridEncryptionReturn {
 
       if (receivedKyberCiphertext) {
         // Je suis le DESTINATAIRE (j'ai recu le ciphertext de l'initiateur)
+        console.log('🔑 Deriving shared key as RESPONDER...');
         const shared = await deriveHybridSharedKeyAsResponder(
           keyPair,
           otherKeys.ecdh,
@@ -89,6 +93,7 @@ export function useHybridEncryption(): UseHybridEncryptionReturn {
         );
         setSharedKey(shared);
         setIsInitiator(false);
+        console.log('✅ Shared key derived as responder, encryption ready!');
       } else {
         // Je suis l'INITIATEUR (premier a recevoir les cles de l'autre)
         const { sharedKey: shared, kyberCiphertext: ciphertext } =
@@ -144,10 +149,10 @@ export function useHybridEncryption(): UseHybridEncryptionReturn {
 // Tu peux supprimer ca une fois la migration terminee
 
 import {
-  generateKeyPair,
-  deriveSharedKey,
-  exportPublicKey,
-  importPublicKey,
+    deriveSharedKey,
+    exportPublicKey,
+    generateKeyPair,
+    importPublicKey,
 } from '@/lib/crypto';
 
 interface UseEncryptionReturn {

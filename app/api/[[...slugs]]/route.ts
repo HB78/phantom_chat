@@ -61,6 +61,8 @@ const rooms = new Elysia({ prefix: '/room' })
     async ({ body, auth }) => {
       const { ecdhPublicKey, kyberPublicKey } = body;
 
+      console.log(`📥 [${auth.token.slice(0, 8)}] Storing public keys for room ${auth.roomId}`);
+
       // Stocker les cles publiques dans Redis
       // Format: keys:roomId = { "token-alice": { ecdh: "...", kyber: "..." }, ... }
       await redis.hset(`keys:${auth.roomId}`, {
@@ -73,6 +75,8 @@ const rooms = new Elysia({ prefix: '/room' })
       // Synchroniser le TTL avec la room
       const remaining = await redis.ttl(`meta:${auth.roomId}`);
       await redis.expire(`keys:${auth.roomId}`, remaining);
+
+      console.log(`✅ [${auth.token.slice(0, 8)}] Keys stored successfully`);
 
       // Notifier l'autre user via realtime
       await realtime.channel(auth.roomId).emit('chat.keyExchange', {
@@ -98,7 +102,11 @@ const rooms = new Elysia({ prefix: '/room' })
         `keys:${auth.roomId}`
       );
 
+      console.log(`🔍 [${auth.token.slice(0, 8)}] Fetching keys for room ${auth.roomId}`);
+      console.log(`   Keys in Redis:`, keys ? Object.keys(keys).map(k => k.slice(0, 8)) : 'none');
+
       if (!keys) {
+        console.log(`   ❌ No keys found in Redis`);
         return { ecdh: null, kyber: null, kyberCiphertext: null, shouldBeInitiator: false };
       }
 
@@ -108,6 +116,7 @@ const rooms = new Elysia({ prefix: '/room' })
       );
 
       if (!otherKeyEntry) {
+        console.log(`   ❌ No other user's keys found (only my own)`);
         return { ecdh: null, kyber: null, kyberCiphertext: null, shouldBeInitiator: false };
       }
 
