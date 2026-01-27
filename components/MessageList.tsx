@@ -71,7 +71,7 @@ const MessageList = ({
       aria-label="Chat messages"
       aria-live="polite"
       aria-busy={isLoading}
-      className="scrollbar-thin flex-1 space-y-4 overflow-y-auto p-4"
+      className="flex-1 space-y-4 overflow-y-auto p-4 scrollbar-thin scrollbar-track-zinc-900/50 scrollbar-thumb-green-500/50 hover:scrollbar-thumb-green-500/80 scrollbar-thumb-rounded-full scrollbar-track-rounded-full"
     >
       {isLoading && (
         <div className="flex h-full items-center justify-center">
