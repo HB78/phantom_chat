@@ -145,12 +145,15 @@ const rooms = new Elysia({ prefix: '/room' })
       const kyberData = await redis.hgetall<Record<string, string>>(
         `kyber:${auth.roomId}`
       );
+      console.log(`   🔑 Kyber data in Redis:`, kyberData ? Object.keys(kyberData).map(k => k.slice(0, 8)) : 'none');
       const kyberCiphertext = kyberData?.[auth.token] || null;
+      console.log(`   ${kyberCiphertext ? '✅' : '❌'} Kyber ciphertext for me:`, kyberCiphertext ? 'YES' : 'NO');
 
       // Determiner de facon deterministe qui est l'initiateur
       // Le token lexicographiquement le plus petit est l'initiateur
       const otherToken = otherKeyEntry[0];
       const shouldBeInitiator = auth.token < otherToken;
+      console.log(`   🎯 Role: ${shouldBeInitiator ? 'INITIATOR' : 'RESPONDER'}`);
 
       return {
         ecdh: otherKeys.ecdh || null,
