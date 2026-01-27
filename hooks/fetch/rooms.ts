@@ -106,6 +106,7 @@ export interface OtherKeyData {
   ecdh: string | null;
   kyber: string | null;
   kyberCiphertext: string | null;
+  shouldBeInitiator: boolean;
 }
 
 /**
@@ -159,18 +160,20 @@ export const useSendKyberCiphertext = () => {
 /**
  * Recuperer les cles publiques de l'autre user
  */
-export const useGetOtherHybridPublicKeys = (roomId: string) => {
+export const useGetOtherHybridPublicKeys = (
+  roomId: string,
+  isEncryptionReady: boolean
+) => {
   return useQuery({
     queryKey: ['hybridPublicKeys', roomId],
     queryFn: async () => {
       const res = await client.room.keys.get({ query: { roomId } });
       return res.data as OtherKeyData | null;
     },
-    // Reessayer toutes les 2 secondes si l'autre user n'est pas encore la
-    refetchInterval: (query) => {
-      const data = query.state.data;
-      // Arreter de refetch si on a les deux cles
-      if (data?.ecdh && data?.kyber) return false;
+    // Continuer a poll tant que le chiffrement n'est pas pret
+    refetchInterval: () => {
+      // Arreter de refetch une fois que le chiffrement E2E est etabli
+      if (isEncryptionReady) return false;
       return 2000;
     },
   });

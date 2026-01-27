@@ -99,7 +99,7 @@ const rooms = new Elysia({ prefix: '/room' })
       );
 
       if (!keys) {
-        return { ecdh: null, kyber: null, kyberCiphertext: null };
+        return { ecdh: null, kyber: null, kyberCiphertext: null, shouldBeInitiator: false };
       }
 
       // Trouver les cles de l'autre user
@@ -108,7 +108,7 @@ const rooms = new Elysia({ prefix: '/room' })
       );
 
       if (!otherKeyEntry) {
-        return { ecdh: null, kyber: null, kyberCiphertext: null };
+        return { ecdh: null, kyber: null, kyberCiphertext: null, shouldBeInitiator: false };
       }
 
       // Parser les cles (avec fallback pour ancien format)
@@ -126,10 +126,16 @@ const rooms = new Elysia({ prefix: '/room' })
       );
       const kyberCiphertext = kyberData?.[auth.token] || null;
 
+      // Determiner de facon deterministe qui est l'initiateur
+      // Le token lexicographiquement le plus petit est l'initiateur
+      const otherToken = otherKeyEntry[0];
+      const shouldBeInitiator = auth.token < otherToken;
+
       return {
         ecdh: otherKeys.ecdh || null,
         kyber: otherKeys.kyber || null,
         kyberCiphertext,
+        shouldBeInitiator,
       };
     },
     {

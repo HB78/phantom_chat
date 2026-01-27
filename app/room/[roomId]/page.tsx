@@ -57,16 +57,16 @@ export default function HomeRoom() {
   // Cache des messages decryptes
   const decryptedCache = useRef<Map<string, string>>(new Map());
 
-  // Refs pour eviter les closures
-  const publicKeysRef = useRef<{ ecdh: string; kyber: string } | null>(null);
-  publicKeysRef.current = publicKeys;
-
   const { mutate: sendHybridPublicKeys } = useSendHybridPublicKeys();
   const { mutate: sendKyberCiphertext } = useSendKyberCiphertext();
-  const { data: otherKeyData } = useGetOtherHybridPublicKeys(roomId);
+  const { data: otherKeyData } = useGetOtherHybridPublicKeys(
+    roomId,
+    isEncryptionReady
+  );
 
   // Flag pour savoir si on a deja traite les cles de l'autre
-  const hasProcessedOtherKeysRef = useRef(false);
+  const hasProcessedAsInitiatorRef = useRef(false);
+  const hasProcessedAsResponderRef = useRef(false);
   // Flag pour savoir si on a deja envoye le ciphertext
   const hasSentCiphertextRef = useRef(false);
 
@@ -77,30 +77,42 @@ export default function HomeRoom() {
     }
   }, [publicKeys, roomId, sendHybridPublicKeys]);
 
-  // 2. Recevoir les cles de l'autre user (via polling)
+  // 2. Recevoir les cles de l'autre user et etablir le chiffrement
   useEffect(() => {
-    if (
-      otherKeyData?.ecdh &&
-      otherKeyData?.kyber &&
-      !hasProcessedOtherKeysRef.current
-    ) {
-      hasProcessedOtherKeysRef.current = true;
+    const processKeyExchange = async () => {
+      // Attendre d'avoir les cles de l'autre
+      if (!otherKeyData?.ecdh || !otherKeyData?.kyber) return;
+      // Ne rien faire si deja pret
+      if (isEncryptionReady) return;
 
-      // Si j'ai deja un ciphertext, je suis le destinataire
-      if (otherKeyData.kyberCiphertext) {
-        setOtherPublicKeys(
-          { ecdh: otherKeyData.ecdh, kyber: otherKeyData.kyber },
-          otherKeyData.kyberCiphertext
-        );
-      } else {
-        // Sinon je suis l'initiateur
-        setOtherPublicKeys({
-          ecdh: otherKeyData.ecdh,
-          kyber: otherKeyData.kyber,
-        });
+      try {
+        // Si j'ai un ciphertext, je suis le DESTINATAIRE (responder)
+        if (otherKeyData.kyberCiphertext && !hasProcessedAsResponderRef.current) {
+          hasProcessedAsResponderRef.current = true;
+          await setOtherPublicKeys(
+            { ecdh: otherKeyData.ecdh, kyber: otherKeyData.kyber },
+            otherKeyData.kyberCiphertext
+          );
+        }
+        // Sinon, si je dois etre l'INITIATEUR (selon le serveur)
+        else if (
+          otherKeyData.shouldBeInitiator &&
+          !hasProcessedAsInitiatorRef.current
+        ) {
+          hasProcessedAsInitiatorRef.current = true;
+          await setOtherPublicKeys({
+            ecdh: otherKeyData.ecdh,
+            kyber: otherKeyData.kyber,
+          });
+        }
+        // Si je ne suis pas l'initiateur et pas de ciphertext, on attend
+      } catch (err) {
+        console.error('Key exchange error:', err);
       }
-    }
-  }, [otherKeyData, setOtherPublicKeys]);
+    };
+
+    processKeyExchange();
+  }, [otherKeyData, setOtherPublicKeys, isEncryptionReady]);
 
   // 3. Envoyer le ciphertext Kyber si je suis l'initiateur
   useEffect(() => {
@@ -175,47 +187,14 @@ export default function HomeRoom() {
   // ============ REALTIME ============
   useRealtime({
     channels: [roomId],
-    events: [
-      'chat.messageSchema',
-      'chat.destroy',
-      'chat.keyExchange',
-      'chat.kyberCiphertext',
-    ],
-    onData: ({ event, data }) => {
+    events: ['chat.messageSchema', 'chat.destroy'],
+    onData: ({ event }) => {
       if (event === 'chat.messageSchema') {
         refetch();
       }
 
       if (event === 'chat.destroy') {
         router.push('/create?destroyed=true');
-      }
-
-      // Recevoir les cles de l'autre user (via realtime)
-      if (event === 'chat.keyExchange' && !hasProcessedOtherKeysRef.current) {
-        const { ecdh, kyber } = data as { ecdh: string; kyber: string };
-        // Ne pas accepter ses propres cles
-        if (
-          publicKeysRef.current &&
-          (ecdh !== publicKeysRef.current.ecdh ||
-            kyber !== publicKeysRef.current.kyber)
-        ) {
-          hasProcessedOtherKeysRef.current = true;
-          setOtherPublicKeys({ ecdh, kyber });
-        }
-      }
-
-      // Recevoir le ciphertext Kyber (pour le destinataire)
-      if (event === 'chat.kyberCiphertext' && !isEncryptionReady) {
-        const { kyberCiphertext: ciphertext } = data as {
-          kyberCiphertext: string;
-        };
-        // Re-traiter les cles avec le ciphertext
-        if (otherKeyData?.ecdh && otherKeyData?.kyber) {
-          setOtherPublicKeys(
-            { ecdh: otherKeyData.ecdh, kyber: otherKeyData.kyber },
-            ciphertext
-          );
-        }
       }
     },
   });
