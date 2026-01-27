@@ -4,13 +4,14 @@ import Header from '@/components/Hearder';
 import MessageList from '@/components/MessageList';
 import {
   useFetchMessages,
-  useGetOtherPublicKey,
+  useGetOtherHybridPublicKeys,
   useGetTimeRemaining,
+  useSendHybridPublicKeys,
+  useSendKyberCiphertext,
   useSendMessage,
-  useSendPublicKey,
 } from '@/hooks/fetch/rooms';
 import { useCountdown } from '@/hooks/use-countdown';
-import { useEncryption } from '@/hooks/use-encryption';
+import { useHybridEncryption } from '@/hooks/use-encryption';
 import { useUsername } from '@/hooks/use-username';
 import { useRealtime } from '@/lib/realtime-setup/realtime-client';
 import { useParams, useRouter } from 'next/navigation';
@@ -39,76 +40,112 @@ export default function HomeRoom() {
   const [input, setInput] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // ============ E2E ENCRYPTION ============
+  // ============ E2E HYBRID ENCRYPTION (ECDH + KYBER) ============
   const {
     isReady: isEncryptionReady,
-    publicKeyBase64,
-    setOtherPublicKey,
+    publicKeys,
+    isInitiator,
+    kyberCiphertext,
+    setOtherPublicKeys,
     encrypt,
     decrypt,
-  } = useEncryption();
+  } = useHybridEncryption();
 
-  // Cache des messages décryptés (clé = id du message)
+  // Cache des messages decryptes
   const decryptedCache = useRef<Map<string, string>>(new Map());
 
-  // Ref pour éviter le problème de closure dans useRealtime
-  const publicKeyRef = useRef<string | null>(null);
-  publicKeyRef.current = publicKeyBase64;
+  // Refs pour eviter les closures
+  const publicKeysRef = useRef<{ ecdh: string; kyber: string } | null>(null);
+  publicKeysRef.current = publicKeys;
 
-  const { mutate: sendPublicKey } = useSendPublicKey();
-  const { data: otherKeyData } = useGetOtherPublicKey(roomId);
+  const { mutate: sendHybridPublicKeys } = useSendHybridPublicKeys();
+  const { mutate: sendKyberCiphertext } = useSendKyberCiphertext();
+  const { data: otherKeyData } = useGetOtherHybridPublicKeys(roomId);
 
-  // Envoyer ma clé publique quand elle est prête
+  // Flag pour savoir si on a deja traite les cles de l'autre
+  const hasProcessedOtherKeysRef = useRef(false);
+  // Flag pour savoir si on a deja envoye le ciphertext
+  const hasSentCiphertextRef = useRef(false);
+
+  // 1. Envoyer mes cles publiques hybrides quand elles sont pretes
   useEffect(() => {
-    if (publicKeyBase64) {
-      sendPublicKey({ roomId, publicKey: publicKeyBase64 });
+    if (publicKeys) {
+      sendHybridPublicKeys({ roomId, publicKeys });
     }
-  }, [publicKeyBase64, roomId, sendPublicKey]);
+  }, [publicKeys, roomId, sendHybridPublicKeys]);
 
-  // Recevoir la clé de l'autre user (via polling)
+  // 2. Recevoir les cles de l'autre user (via polling)
   useEffect(() => {
-    if (otherKeyData?.otherPublicKey && !isEncryptionReady) {
-      setOtherPublicKey(otherKeyData.otherPublicKey);
-    }
-  }, [otherKeyData, isEncryptionReady, setOtherPublicKey]);
+    if (
+      otherKeyData?.ecdh &&
+      otherKeyData?.kyber &&
+      !hasProcessedOtherKeysRef.current
+    ) {
+      hasProcessedOtherKeysRef.current = true;
 
-  // Vider le cache quand E2E devient prêt (pour re-décrypter les anciens messages)
+      // Si j'ai deja un ciphertext, je suis le destinataire
+      if (otherKeyData.kyberCiphertext) {
+        setOtherPublicKeys(
+          { ecdh: otherKeyData.ecdh, kyber: otherKeyData.kyber },
+          otherKeyData.kyberCiphertext
+        );
+      } else {
+        // Sinon je suis l'initiateur
+        setOtherPublicKeys({
+          ecdh: otherKeyData.ecdh,
+          kyber: otherKeyData.kyber,
+        });
+      }
+    }
+  }, [otherKeyData, setOtherPublicKeys]);
+
+  // 3. Envoyer le ciphertext Kyber si je suis l'initiateur
+  useEffect(() => {
+    if (isInitiator && kyberCiphertext && !hasSentCiphertextRef.current) {
+      hasSentCiphertextRef.current = true;
+      sendKyberCiphertext({ roomId, kyberCiphertext });
+    }
+  }, [isInitiator, kyberCiphertext, roomId, sendKyberCiphertext]);
+
+  // Vider le cache quand E2E devient pret
   useEffect(() => {
     if (isEncryptionReady) {
       decryptedCache.current.clear();
     }
   }, [isEncryptionReady]);
 
-  // Décrypter un message (avec cache)
+  // Decrypter un message (avec cache)
   const getDecryptedText = async (msg: { id: string; text: string }) => {
-    // Vérifier le cache SEULEMENT si E2E est prêt
     if (isEncryptionReady && decryptedCache.current.has(msg.id)) {
       return decryptedCache.current.get(msg.id)!;
     }
 
-    // Si E2E prêt, décrypter
     if (isEncryptionReady) {
       try {
         const decryptedText = await decrypt(msg.text);
         decryptedCache.current.set(msg.id, decryptedText);
         return decryptedText;
       } catch {
-        // Échec = message non chiffré, garder original
         decryptedCache.current.set(msg.id, msg.text);
         return msg.text;
       }
     }
 
-    // E2E pas prêt = ne pas cacher, retourner tel quel
     return msg.text;
   };
 
-  // Messages avec texte décrypté (synchrone grâce au cache)
+  // Messages avec texte decrypte
   const [decryptedMessages, setDecryptedMessages] = useState<
-    { id: string; sender: string; text: string; timestamp: number; roomId: string }[]
+    {
+      id: string;
+      sender: string;
+      text: string;
+      timestamp: number;
+      roomId: string;
+    }[]
   >([]);
 
-  // Décrypter les nouveaux messages uniquement
+  // Decrypter les nouveaux messages
   useEffect(() => {
     const decryptNewMessages = async () => {
       if (!messages?.messages) {
@@ -133,7 +170,12 @@ export default function HomeRoom() {
   // ============ REALTIME ============
   useRealtime({
     channels: [roomId],
-    events: ['chat.messageSchema', 'chat.destroy', 'chat.keyExchange'],
+    events: [
+      'chat.messageSchema',
+      'chat.destroy',
+      'chat.keyExchange',
+      'chat.kyberCiphertext',
+    ],
     onData: ({ event, data }) => {
       if (event === 'chat.messageSchema') {
         refetch();
@@ -143,13 +185,31 @@ export default function HomeRoom() {
         router.push('/create?destroyed=true');
       }
 
-      // Recevoir la clé de l'autre user (via realtime)
-      // IMPORTANT: Ignorer si c'est ma propre clé publique (utilise ref pour éviter closure)
-      if (event === 'chat.keyExchange') {
-        const { publicKey } = data as { publicKey: string };
-        // Ne pas accepter sa propre clé
-        if (publicKey !== publicKeyRef.current) {
-          setOtherPublicKey(publicKey);
+      // Recevoir les cles de l'autre user (via realtime)
+      if (event === 'chat.keyExchange' && !hasProcessedOtherKeysRef.current) {
+        const { ecdh, kyber } = data as { ecdh: string; kyber: string };
+        // Ne pas accepter ses propres cles
+        if (
+          publicKeysRef.current &&
+          (ecdh !== publicKeysRef.current.ecdh ||
+            kyber !== publicKeysRef.current.kyber)
+        ) {
+          hasProcessedOtherKeysRef.current = true;
+          setOtherPublicKeys({ ecdh, kyber });
+        }
+      }
+
+      // Recevoir le ciphertext Kyber (pour le destinataire)
+      if (event === 'chat.kyberCiphertext' && !isEncryptionReady) {
+        const { kyberCiphertext: ciphertext } = data as {
+          kyberCiphertext: string;
+        };
+        // Re-traiter les cles avec le ciphertext
+        if (otherKeyData?.ecdh && otherKeyData?.kyber) {
+          setOtherPublicKeys(
+            { ecdh: otherKeyData.ecdh, kyber: otherKeyData.kyber },
+            ciphertext
+          );
         }
       }
     },
@@ -161,7 +221,6 @@ export default function HomeRoom() {
 
     let textToSend = input;
 
-    // Chiffrer si E2E est prêt
     if (isEncryptionReady) {
       textToSend = await encrypt(input);
     }
@@ -179,7 +238,11 @@ export default function HomeRoom() {
       <MessageList
         isLoading={isLoading}
         error={error}
-        messages={decryptedMessages.length > 0 ? { messages: decryptedMessages } : messages}
+        messages={
+          decryptedMessages.length > 0
+            ? { messages: decryptedMessages }
+            : messages
+        }
         username={username}
       />
 
@@ -187,7 +250,8 @@ export default function HomeRoom() {
       {!isEncryptionReady && (
         <div className="border-t border-zinc-800 bg-amber-950/30 px-4 py-2 text-center">
           <p className="text-xs text-amber-400">
-            🔓 Waiting for other user to establish encrypted connection...
+            🔓 Waiting for other user to establish quantum-safe encrypted
+            connection...
           </p>
         </div>
       )}
@@ -196,7 +260,7 @@ export default function HomeRoom() {
       <footer className="border-t border-zinc-800 bg-zinc-900/30 p-4">
         {isEncryptionReady && (
           <p className="mb-2 text-center text-xs text-green-400">
-            🔐 End-to-end encrypted
+            🔐 Post-quantum E2E encrypted (ECDH + Kyber)
           </p>
         )}
         <form

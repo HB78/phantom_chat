@@ -16,18 +16,13 @@ const rooms = new Elysia({ prefix: '/room' })
   .post('/create', async () => {
     const roomId = nanoid();
 
-    //on met l'id de la room dans la bdd redis
-    //`meta:${roomId}` est le nom de la boite
-    //le deuxieme argument à savoir { connected: [],createdAt: Date.now(),} est le contenu de la boite
     await redis.hset(`meta:${roomId}`, {
       connected: [],
       createdAt: Date.now(),
     });
 
-    //auto-destruction de la room
     await redis.expire(`meta:${roomId}`, ROOM_TTL_SECONDS);
 
-    //pas de besoin de json ici par comme next js avec nextresponse
     return { roomId };
   })
   .use(authMiddleware)
@@ -42,77 +37,155 @@ const rooms = new Elysia({ prefix: '/room' })
   .delete(
     '/',
     async ({ auth }) => {
-      // Notifie tout le monde que la room est détruite
-      //toujours le realtime en premier lors de la suppression d'une room
       await realtime
         .channel(auth.roomId)
         .emit('chat.destroy', { isDestroy: true });
 
       await Promise.all([
-        //destruction des données de la room dans redis, suppression des metadata
         redis.del(auth.roomId),
-        //destruction de la room
         redis.del(`meta:${auth.roomId}`),
-        //destruction des messages associés a la room
         redis.del(`messages:${auth.roomId}`),
-        //destruction des clés publiques E2E
         redis.del(`keys:${auth.roomId}`),
+        redis.del(`kyber:${auth.roomId}`),
       ]);
     },
     {
       query: z.object({ roomId: z.string() }),
     }
   )
-  // POST /room/keys - Envoyer sa clé publique pour l'échange E2E
+  // ============ HYBRID KEY EXCHANGE (ECDH + KYBER) ============
+
+  // POST /room/keys - Envoyer ses cles publiques hybrides
   .post(
     '/keys',
     async ({ body, auth }) => {
-      const { publicKey } = body;
+      const { ecdhPublicKey, kyberPublicKey } = body;
 
-      // Stocker ma clé publique dans Redis (hash avec mon token comme clé)
-      // keys:ABC123 = { "token-alice": "AAA...", "token-bob": "BBB..." }
+      // Stocker les cles publiques dans Redis
+      // Format: keys:roomId = { "token-alice": { ecdh: "...", kyber: "..." }, ... }
       await redis.hset(`keys:${auth.roomId}`, {
-        [auth.token]: publicKey,
+        [auth.token]: JSON.stringify({
+          ecdh: ecdhPublicKey,
+          kyber: kyberPublicKey,
+        }),
       });
 
-      // Synchroniser le TTL avec la room (pour que les clés expirent en même temps)
+      // Synchroniser le TTL avec la room
       const remaining = await redis.ttl(`meta:${auth.roomId}`);
       await redis.expire(`keys:${auth.roomId}`, remaining);
 
-      // Notifier l'autre user via realtime qu'une nouvelle clé est disponible
-      await realtime
-        .channel(auth.roomId)
-        .emit('chat.keyExchange', { publicKey });
+      // Notifier l'autre user via realtime
+      await realtime.channel(auth.roomId).emit('chat.keyExchange', {
+        ecdh: ecdhPublicKey,
+        kyber: kyberPublicKey,
+      });
 
       return { success: true };
     },
     {
       query: z.object({ roomId: z.string() }),
-      body: z.object({ publicKey: z.string() }),
+      body: z.object({
+        ecdhPublicKey: z.string(),
+        kyberPublicKey: z.string(),
+      }),
     }
   )
-  // GET /room/keys - Récupérer la clé publique de l'autre user
+  // GET /room/keys - Recuperer les cles publiques de l'autre user
   .get(
     '/keys',
     async ({ auth }) => {
-      // Récupérer toutes les clés publiques de la room
       const keys = await redis.hgetall<Record<string, string>>(
         `keys:${auth.roomId}`
       );
 
-      // Si pas de clés stockées
       if (!keys) {
-        return { otherPublicKey: null };
+        return { ecdh: null, kyber: null, kyberCiphertext: null };
       }
 
-      // Trouver la clé de l'autre user (celle qui n'est PAS la mienne)
-      const otherKey = Object.entries(keys).find(
+      // Trouver les cles de l'autre user
+      const otherKeyEntry = Object.entries(keys).find(
         ([token]) => token !== auth.token
       );
 
+      if (!otherKeyEntry) {
+        return { ecdh: null, kyber: null, kyberCiphertext: null };
+      }
+
+      const otherKeys = JSON.parse(otherKeyEntry[1]);
+
+      // Verifier s'il y a un ciphertext Kyber pour moi
+      const kyberData = await redis.hgetall<Record<string, string>>(
+        `kyber:${auth.roomId}`
+      );
+      const kyberCiphertext = kyberData?.[auth.token] || null;
+
       return {
-        otherPublicKey: otherKey ? otherKey[1] : null,
+        ecdh: otherKeys.ecdh || null,
+        kyber: otherKeys.kyber || null,
+        kyberCiphertext,
       };
+    },
+    {
+      query: z.object({ roomId: z.string() }),
+    }
+  )
+  // POST /room/kyber - Envoyer le ciphertext Kyber (initiateur -> destinataire)
+  .post(
+    '/kyber',
+    async ({ body, auth }) => {
+      const { kyberCiphertext } = body;
+
+      // Recuperer le token de l'autre user
+      const keys = await redis.hgetall<Record<string, string>>(
+        `keys:${auth.roomId}`
+      );
+
+      if (!keys) {
+        throw new Error('No keys found for this room');
+      }
+
+      const otherToken = Object.keys(keys).find(
+        (token) => token !== auth.token
+      );
+
+      if (!otherToken) {
+        throw new Error('Other user not found');
+      }
+
+      // Stocker le ciphertext pour l'autre user
+      await redis.hset(`kyber:${auth.roomId}`, {
+        [otherToken]: kyberCiphertext,
+      });
+
+      // Synchroniser le TTL
+      const remaining = await redis.ttl(`meta:${auth.roomId}`);
+      await redis.expire(`kyber:${auth.roomId}`, remaining);
+
+      // Notifier l'autre user
+      await realtime.channel(auth.roomId).emit('chat.kyberCiphertext', {
+        kyberCiphertext,
+      });
+
+      return { success: true };
+    },
+    {
+      query: z.object({ roomId: z.string() }),
+      body: z.object({
+        kyberCiphertext: z.string(),
+      }),
+    }
+  )
+  // GET /room/kyber - Recuperer le ciphertext Kyber (pour le destinataire)
+  .get(
+    '/kyber',
+    async ({ auth }) => {
+      const kyberData = await redis.hgetall<Record<string, string>>(
+        `kyber:${auth.roomId}`
+      );
+
+      const kyberCiphertext = kyberData?.[auth.token] || null;
+
+      return { kyberCiphertext };
     },
     {
       query: z.object({ roomId: z.string() }),
@@ -142,31 +215,22 @@ const messages = new Elysia({ prefix: '/messages' })
         roomId,
       };
 
-      //add message to history
-      //quand un message arrive il est stocker dans le arraydes messages a droite de la liste en dernier d'ou le rpush
-      //on ajoute un objet js dans la room
       await redis.rpush(`messages:${roomId}`, {
         ...message,
         token: auth.token,
       });
 
-      //le message va etre emmit a tous les clients connectés a cette room via upstash realtime
       await realtime.channel(roomId).emit('chat.messageSchema', message);
 
-      //housekeeping force the expiration session of the room
-      //ttl est un concept de redis c'est le time to leave
       const remaining = await redis.ttl(`meta:${roomId}`);
       await redis.expire(`messages:${roomId}`, remaining);
       await redis.expire(roomId, remaining);
     },
     {
-      //utiliser query c'est comme faire une route /api/test?id
-      //la c'est en fait un post vers /api/messages?roomId
-      // ?id est un substitut pour ne pas utiliser une route classique /api/test/id
       query: z.object({ roomId: z.string() }),
       body: z.object({
         sender: z.string().max(100),
-        text: z.string().max(1000),
+        text: z.string().max(5000), // Augmente pour les messages chiffres Kyber
       }),
     }
   )
@@ -195,7 +259,6 @@ const messages = new Elysia({ prefix: '/messages' })
 
 export const app = new Elysia({ prefix: '/api' }).use(rooms).use(messages);
 
-//le type de toute notre api grace a Eden
 export type App = typeof app;
 
 export const GET = app.fetch;
