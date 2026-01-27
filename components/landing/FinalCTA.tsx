@@ -23,7 +23,7 @@ export function FinalCTA() {
         <p className="mb-8 text-zinc-300">
           Your private conversation is one click away.
           <br />
-          No signup. No traces. Just pure encrypted communication.
+          Post-quantum encryption. No signup. No traces.
         </p>
 
         <CyberButton href="/create">LAUNCH SECURE CHAT</CyberButton>
@@ -35,8 +35,8 @@ export function FinalCTA() {
             <span className="text-green-400">SECURE</span>
           </p>
           <p>
-            <span className="text-green-500">{'>'}</span> encryption_level:{' '}
-            <span className="text-green-400">MAXIMUM</span>
+            <span className="text-green-500">{'>'}</span> quantum_safe:{' '}
+            <span className="text-green-400">TRUE</span>
           </p>
           <p>
             <span className="text-green-500">{'>'}</span> trace_possibility:{' '}

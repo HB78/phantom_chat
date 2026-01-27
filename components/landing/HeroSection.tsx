@@ -65,7 +65,7 @@ export function HeroSection() {
 
             {/* Description */}
             <p className="mx-auto max-w-md text-sm text-zinc-300 md:text-base">
-              Self-destructing encrypted chat rooms.
+              Post-quantum encrypted chat rooms that self-destruct.
               <br />
               No accounts. No logs. No traces.
             </p>
@@ -88,11 +88,11 @@ export function HeroSection() {
               </p>
               <p>
                 <span className="text-green-500">$</span> encryption:{' '}
-                <span className="text-green-400">AES-256-GCM</span>
+                <span className="text-green-400">ML-KEM-768 + AES-256-GCM</span>
               </p>
               <p>
-                <span className="text-green-500">$</span> active_rooms:{' '}
-                <span className="text-green-400">███</span>
+                <span className="text-green-500">$</span> quantum_safe:{' '}
+                <span className="text-green-400">TRUE</span>
               </p>
             </div>
           </div>
