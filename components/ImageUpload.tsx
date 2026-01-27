@@ -2,7 +2,9 @@
 
 import { formatFileSize, isValidImageSize, isValidImageType } from '@/lib/image/process';
 import { ImageIcon, X } from 'lucide-react';
-import { useRef, useState } from 'react';
+import Image from 'next/image';
+import { useCallback, useState } from 'react';
+import { useDropzone } from 'react-dropzone';
 
 interface ImageUploadProps {
   onImageSelect: (file: File) => void;
@@ -19,38 +21,49 @@ export function ImageUpload({
   disabled = false,
   maxSizeBytes = MAX_SIZE,
 }: ImageUploadProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const handleClick = () => {
-    inputRef.current?.click();
-  };
+  const onDrop = useCallback(
+    (acceptedFiles: File[]) => {
+      const file = acceptedFiles[0];
+      if (!file) return;
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+      setError(null);
 
-    setError(null);
+      // Verifier le type
+      if (!isValidImageType(file)) {
+        setError('Format non supporte. Utilisez JPEG, JPG, PNG ou WebP.');
+        return;
+      }
 
-    // Verifier le type
-    if (!isValidImageType(file)) {
-      setError('Format non supporte. Utilisez JPEG, JPG, PNG ou WebP.');
-      return;
-    }
+      // Verifier la taille
+      if (!isValidImageSize(file, maxSizeBytes)) {
+        setError(`Fichier trop volumineux. Max: ${formatFileSize(maxSizeBytes)}`);
+        return;
+      }
 
-    // Verifier la taille
-    if (!isValidImageSize(file, maxSizeBytes)) {
-      setError(`Fichier trop volumineux. Max: ${formatFileSize(maxSizeBytes)}`);
-      return;
-    }
+      // Creer preview
+      const url = URL.createObjectURL(file);
+      setPreview(url);
+      setSelectedFile(file);
+    },
+    [maxSizeBytes]
+  );
 
-    // Creer preview
-    const url = URL.createObjectURL(file);
-    setPreview(url);
-    setSelectedFile(file);
-  };
+  const { getRootProps, getInputProps, open } = useDropzone({
+    onDrop,
+    accept: {
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/png': ['.png'],
+      'image/webp': ['.webp'],
+    },
+    maxFiles: 1,
+    noClick: true,
+    noKeyboard: true,
+    disabled,
+  });
 
   const handleSend = () => {
     if (selectedFile) {
@@ -60,46 +73,43 @@ export function ImageUpload({
   };
 
   const handleClear = () => {
+    if (preview) {
+      URL.revokeObjectURL(preview);
+    }
     setPreview(null);
     setSelectedFile(null);
     setError(null);
-    if (inputRef.current) {
-      inputRef.current.value = '';
-    }
     onCancel();
   };
 
   return (
-    <div className="relative">
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/jpeg,image/jpg,image/png,image/webp"
-        onChange={handleFileChange}
-        className="hidden"
-        disabled={disabled}
-      />
+    <div {...getRootProps()} className="relative">
+      <input {...getInputProps()} />
 
-      {!preview ? (
-        // Bouton d'upload
-        <button
-          type="button"
-          onClick={handleClick}
-          disabled={disabled}
-          className="flex h-10 w-10 items-center justify-center rounded-md border border-zinc-700 bg-zinc-800 text-zinc-400 transition-colors hover:border-green-500 hover:text-green-400 disabled:cursor-not-allowed disabled:opacity-50"
-          aria-label="Upload image"
-        >
-          <ImageIcon className="h-5 w-5" />
-        </button>
-      ) : (
-        // Preview de l'image
-        <div className="absolute bottom-full left-0 mb-2 w-64 rounded-md border border-zinc-700 bg-zinc-900 p-2 shadow-xl">
+      {/* Bouton d'upload */}
+      <button
+        type="button"
+        onClick={open}
+        disabled={disabled}
+        className="flex h-10 w-10 items-center justify-center rounded-md border border-zinc-700 bg-zinc-800 text-zinc-400 transition-colors hover:border-green-500 hover:text-green-400 disabled:cursor-not-allowed disabled:opacity-50"
+        aria-label="Upload image"
+      >
+        <ImageIcon className="h-5 w-5" />
+      </button>
+
+      {/* Preview de l'image */}
+      {preview && (
+        <div className="absolute bottom-full left-0 z-50 mb-2 w-64 rounded-md border border-zinc-700 bg-zinc-900 p-2 shadow-xl">
           <div className="relative">
-            <img
-              src={preview}
-              alt="Preview"
-              className="max-h-48 w-full rounded object-contain"
-            />
+            <div className="relative h-48 w-full">
+              <Image
+                src={preview}
+                alt="Preview"
+                fill
+                className="rounded object-contain"
+                unoptimized
+              />
+            </div>
             <button
               type="button"
               onClick={handleClear}
@@ -127,9 +137,20 @@ export function ImageUpload({
         </div>
       )}
 
+      {/* Erreur */}
       {error && (
-        <div className="absolute bottom-full left-0 mb-2 rounded-md border border-red-500 bg-red-950 px-3 py-2 text-xs text-red-400">
-          {error}
+        <div className="absolute bottom-full left-0 z-50 mb-2 w-64 rounded-md border border-red-500 bg-red-950 p-3 shadow-xl">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-xs text-red-400">{error}</p>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              className="text-red-400 hover:text-red-300"
+              aria-label="Fermer"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       )}
     </div>

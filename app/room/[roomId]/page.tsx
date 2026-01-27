@@ -42,7 +42,6 @@ export default function HomeRoom() {
   const [input, setInput] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
-  const [showImageUpload, setShowImageUpload] = useState(false);
 
   // ============ E2E HYBRID ENCRYPTION (ECDH + KYBER) ============
   const {
@@ -244,7 +243,6 @@ export default function HomeRoom() {
     }
 
     setIsUploadingImage(true);
-    setShowImageUpload(false);
 
     try {
       // 1. Traiter l'image (supprime EXIF + compresse)
@@ -326,39 +324,11 @@ export default function HomeRoom() {
           className="flex items-center gap-2"
         >
           {/* Image Upload Button */}
-          <div className="relative">
-            {showImageUpload ? (
-              <ImageUpload
-                onImageSelect={handleImageSelect}
-                onCancel={() => setShowImageUpload(false)}
-                disabled={!isEncryptionReady || isUploadingImage}
-              />
-            ) : (
-              <button
-                type="button"
-                onClick={() => setShowImageUpload(true)}
-                disabled={!isEncryptionReady || isUploadingImage}
-                className="flex h-10 w-10 items-center justify-center rounded-md border border-zinc-700 bg-zinc-800 text-zinc-400 transition-colors hover:border-green-500 hover:text-green-400 disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label="Upload image"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
-                  <circle cx="9" cy="9" r="2" />
-                  <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
-                </svg>
-              </button>
-            )}
-          </div>
+          <ImageUpload
+            onImageSelect={handleImageSelect}
+            onCancel={() => {}}
+            disabled={!isEncryptionReady || isUploadingImage}
+          />
 
           {/* Text Input */}
           <div className="group relative flex-1">

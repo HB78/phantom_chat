@@ -111,7 +111,14 @@ const rooms = new Elysia({ prefix: '/room' })
         return { ecdh: null, kyber: null, kyberCiphertext: null };
       }
 
-      const otherKeys = JSON.parse(otherKeyEntry[1]);
+      // Parser les cles (avec fallback pour ancien format)
+      let otherKeys: { ecdh?: string; kyber?: string };
+      try {
+        otherKeys = JSON.parse(otherKeyEntry[1]);
+      } catch {
+        // Ancien format: juste une string (cle ECDH seule)
+        otherKeys = { ecdh: otherKeyEntry[1], kyber: undefined };
+      }
 
       // Verifier s'il y a un ciphertext Kyber pour moi
       const kyberData = await redis.hgetall<Record<string, string>>(

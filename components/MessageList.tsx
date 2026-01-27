@@ -2,6 +2,8 @@
 
 import { Message } from '@/lib/realtime-setup/realtime';
 import { format } from 'date-fns';
+import { X } from 'lucide-react';
+import Image from 'next/image';
 import { useState } from 'react';
 
 interface MessageListProps {
@@ -17,12 +19,18 @@ function MessageImage({ src, alt }: { src: string; alt: string }) {
 
   return (
     <>
-      <img
-        src={src}
-        alt={alt}
-        className="mt-2 max-h-64 max-w-full cursor-pointer rounded-md object-contain transition-transform hover:scale-[1.02]"
+      <div
+        className="relative mt-2 h-48 w-full max-w-xs cursor-pointer overflow-hidden rounded-md transition-transform hover:scale-[1.02]"
         onClick={() => setIsExpanded(true)}
-      />
+      >
+        <Image
+          src={src}
+          alt={alt}
+          fill
+          className="object-contain"
+          unoptimized
+        />
+      </div>
 
       {/* Lightbox */}
       {isExpanded && (
@@ -30,30 +38,21 @@ function MessageImage({ src, alt }: { src: string; alt: string }) {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4"
           onClick={() => setIsExpanded(false)}
         >
-          <img
-            src={src}
-            alt={alt}
-            className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain"
-          />
+          <div className="relative h-[90vh] w-[90vw]">
+            <Image
+              src={src}
+              alt={alt}
+              fill
+              className="rounded-lg object-contain"
+              unoptimized
+            />
+          </div>
           <button
             className="absolute right-4 top-4 rounded-full bg-zinc-800 p-2 text-white hover:bg-zinc-700"
             onClick={() => setIsExpanded(false)}
             aria-label="Fermer"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
+            <X className="h-6 w-6" />
           </button>
         </div>
       )}
