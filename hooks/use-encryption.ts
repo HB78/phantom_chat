@@ -10,6 +10,141 @@ import {
 } from '@/lib/crypto';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+// ============ STORAGE KEYS ============
+const STORAGE_KEY_PREFIX = 'phantom_keys_';
+const STORAGE_SHARED_PREFIX = 'phantom_shared_';
+
+// ============ STORAGE HELPERS ============
+
+interface StoredKeys {
+  ecdh: {
+    publicKey: JsonWebKey;
+    privateKey: JsonWebKey;
+  };
+  kyber: {
+    publicKey: string; // base64
+    privateKey: string; // base64
+  };
+  publicKeysExported: ExportedPublicKeys;
+}
+
+interface StoredSharedKey {
+  key: JsonWebKey;
+  isInitiator: boolean;
+  kyberCiphertext: string | null;
+}
+
+async function saveKeysToStorage(roomId: string, keyPair: HybridKeyPair, publicKeys: ExportedPublicKeys): Promise<void> {
+  try {
+    const ecdhPublicJwk = await crypto.subtle.exportKey('jwk', keyPair.ecdh.publicKey);
+    const ecdhPrivateJwk = await crypto.subtle.exportKey('jwk', keyPair.ecdh.privateKey);
+
+    const stored: StoredKeys = {
+      ecdh: {
+        publicKey: ecdhPublicJwk,
+        privateKey: ecdhPrivateJwk,
+      },
+      kyber: {
+        publicKey: btoa(String.fromCharCode(...keyPair.kyber.publicKey)),
+        privateKey: btoa(String.fromCharCode(...keyPair.kyber.privateKey)),
+      },
+      publicKeysExported: publicKeys,
+    };
+
+    sessionStorage.setItem(`${STORAGE_KEY_PREFIX}${roomId}`, JSON.stringify(stored));
+    console.log('💾 Keys saved to sessionStorage');
+  } catch (err) {
+    console.error('Failed to save keys to storage:', err);
+  }
+}
+
+async function loadKeysFromStorage(roomId: string): Promise<{ keyPair: HybridKeyPair; publicKeys: ExportedPublicKeys } | null> {
+  try {
+    const stored = sessionStorage.getItem(`${STORAGE_KEY_PREFIX}${roomId}`);
+    if (!stored) return null;
+
+    const data: StoredKeys = JSON.parse(stored);
+
+    const ecdhPublicKey = await crypto.subtle.importKey(
+      'jwk',
+      data.ecdh.publicKey,
+      { name: 'ECDH', namedCurve: 'P-256' },
+      true,
+      []
+    );
+
+    const ecdhPrivateKey = await crypto.subtle.importKey(
+      'jwk',
+      data.ecdh.privateKey,
+      { name: 'ECDH', namedCurve: 'P-256' },
+      true,
+      ['deriveKey', 'deriveBits']
+    );
+
+    const kyberPublicKey = Uint8Array.from(atob(data.kyber.publicKey), c => c.charCodeAt(0));
+    const kyberPrivateKey = Uint8Array.from(atob(data.kyber.privateKey), c => c.charCodeAt(0));
+
+    console.log('📂 Keys restored from sessionStorage');
+
+    return {
+      keyPair: {
+        ecdh: { publicKey: ecdhPublicKey, privateKey: ecdhPrivateKey },
+        kyber: { publicKey: kyberPublicKey, privateKey: kyberPrivateKey },
+      },
+      publicKeys: data.publicKeysExported,
+    };
+  } catch (err) {
+    console.error('Failed to load keys from storage:', err);
+    return null;
+  }
+}
+
+async function saveSharedKeyToStorage(
+  roomId: string,
+  sharedKey: CryptoKey,
+  isInitiator: boolean,
+  kyberCiphertext: string | null
+): Promise<void> {
+  try {
+    const keyJwk = await crypto.subtle.exportKey('jwk', sharedKey);
+    const stored: StoredSharedKey = { key: keyJwk, isInitiator, kyberCiphertext };
+    sessionStorage.setItem(`${STORAGE_SHARED_PREFIX}${roomId}`, JSON.stringify(stored));
+    console.log('💾 Shared key saved to sessionStorage');
+  } catch (err) {
+    console.error('Failed to save shared key:', err);
+  }
+}
+
+async function loadSharedKeyFromStorage(roomId: string): Promise<StoredSharedKey & { sharedKey: CryptoKey } | null> {
+  try {
+    const stored = sessionStorage.getItem(`${STORAGE_SHARED_PREFIX}${roomId}`);
+    if (!stored) return null;
+
+    const data: StoredSharedKey = JSON.parse(stored);
+
+    const sharedKey = await crypto.subtle.importKey(
+      'jwk',
+      data.key,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+
+    console.log('📂 Shared key restored from sessionStorage');
+
+    return { sharedKey, isInitiator: data.isInitiator, kyberCiphertext: data.kyberCiphertext };
+  } catch (err) {
+    console.error('Failed to load shared key:', err);
+    return null;
+  }
+}
+
+export function clearEncryptionKeys(roomId: string): void {
+  sessionStorage.removeItem(`${STORAGE_KEY_PREFIX}${roomId}`);
+  sessionStorage.removeItem(`${STORAGE_SHARED_PREFIX}${roomId}`);
+  console.log('🗑️ Encryption keys cleared from sessionStorage');
+}
+
 /**
  * Donnees de cles publiques echangees entre les deux users
  */
@@ -41,9 +176,11 @@ interface UseHybridEncryptionReturn {
   encrypt: (message: string) => Promise<string>;
   /** Dechiffre un message */
   decrypt: (encryptedMessage: string) => Promise<string>;
+  /** Nettoie les cles stockees */
+  clearKeys: () => void;
 }
 
-export function useHybridEncryption(): UseHybridEncryptionReturn {
+export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn {
   const [keyPair, setKeyPair] = useState<HybridKeyPair | null>(null);
   const [publicKeys, setPublicKeys] = useState<ExportedPublicKeys | null>(null);
   const [sharedKey, setSharedKey] = useState<CryptoKey | null>(null);
@@ -53,14 +190,42 @@ export function useHybridEncryption(): UseHybridEncryptionReturn {
   // Ref pour eviter les doubles initialisations en mode strict
   const initRef = useRef(false);
 
-  // 1. Generer les cles hybrides au montage du composant
+  // 1. Generer ou restaurer les cles hybrides au montage du composant
   useEffect(() => {
     if (initRef.current) return;
     initRef.current = true;
 
     const init = async () => {
+      // Essayer de restaurer depuis sessionStorage
+      if (roomId) {
+        // D'abord verifier si on a une cle partagee
+        const storedShared = await loadSharedKeyFromStorage(roomId);
+        if (storedShared) {
+          // On a deja une session etablie, restaurer tout
+          const storedKeys = await loadKeysFromStorage(roomId);
+          if (storedKeys) {
+            setKeyPair(storedKeys.keyPair);
+            setPublicKeys(storedKeys.publicKeys);
+            setSharedKey(storedShared.sharedKey);
+            setIsInitiator(storedShared.isInitiator);
+            setKyberCiphertext(storedShared.kyberCiphertext);
+            console.log('✅ Full encryption state restored from sessionStorage');
+            return;
+          }
+        }
+
+        // Sinon verifier si on a juste les cles (pas encore de shared key)
+        const storedKeys = await loadKeysFromStorage(roomId);
+        if (storedKeys) {
+          setKeyPair(storedKeys.keyPair);
+          setPublicKeys(storedKeys.publicKeys);
+          console.log('✅ Key pair restored, waiting for key exchange');
+          return;
+        }
+      }
+
+      // Rien en storage, generer de nouvelles cles
       console.log('🔐 Generating hybrid key pair (ECDH + Kyber)...');
-      // Generer la paire de cles hybride (ECDH + Kyber)
       const keys = await generateHybridKeyPair();
       setKeyPair(keys);
       console.log('✅ Key pair generated');
@@ -69,9 +234,14 @@ export function useHybridEncryption(): UseHybridEncryptionReturn {
       const exported = await exportHybridPublicKeys(keys);
       setPublicKeys(exported);
       console.log('✅ Public keys exported and ready to send');
+
+      // Sauvegarder dans sessionStorage
+      if (roomId) {
+        await saveKeysToStorage(roomId, keys, exported);
+      }
     };
     init();
-  }, []);
+  }, [roomId]);
 
   // 2. Recevoir les cles publiques de l'autre user et calculer la cle partagee
   const setOtherPublicKeys = useCallback(
@@ -83,31 +253,44 @@ export function useHybridEncryption(): UseHybridEncryptionReturn {
         throw new Error('Key pair not generated yet');
       }
 
+      let shared: CryptoKey;
+      let initiator: boolean;
+      let ciphertext: string | null = null;
+
       if (receivedKyberCiphertext) {
         // Je suis le DESTINATAIRE (j'ai recu le ciphertext de l'initiateur)
         console.log('🔑 Deriving shared key as RESPONDER...');
-        const shared = await deriveHybridSharedKeyAsResponder(
+        shared = await deriveHybridSharedKeyAsResponder(
           keyPair,
           otherKeys.ecdh,
           receivedKyberCiphertext
         );
-        setSharedKey(shared);
-        setIsInitiator(false);
+        initiator = false;
         console.log('✅ Shared key derived as responder, encryption ready!');
       } else {
         // Je suis l'INITIATEUR (premier a recevoir les cles de l'autre)
-        const { sharedKey: shared, kyberCiphertext: ciphertext } =
-          await deriveHybridSharedKeyAsInitiator(
-            keyPair,
-            otherKeys.ecdh,
-            otherKeys.kyber
-          );
-        setSharedKey(shared);
-        setKyberCiphertext(ciphertext);
-        setIsInitiator(true);
+        console.log('🔑 Deriving shared key as INITIATOR...');
+        const result = await deriveHybridSharedKeyAsInitiator(
+          keyPair,
+          otherKeys.ecdh,
+          otherKeys.kyber
+        );
+        shared = result.sharedKey;
+        ciphertext = result.kyberCiphertext;
+        initiator = true;
+        console.log('✅ Shared key derived as initiator, encryption ready!');
+      }
+
+      setSharedKey(shared);
+      setIsInitiator(initiator);
+      setKyberCiphertext(ciphertext);
+
+      // Sauvegarder la cle partagee
+      if (roomId) {
+        await saveSharedKeyToStorage(roomId, shared, initiator, ciphertext);
       }
     },
-    [keyPair]
+    [keyPair, roomId]
   );
 
   // 3. Chiffrer un message
@@ -132,6 +315,13 @@ export function useHybridEncryption(): UseHybridEncryptionReturn {
     [sharedKey]
   );
 
+  // 5. Nettoyer les cles
+  const clearKeys = useCallback(() => {
+    if (roomId) {
+      clearEncryptionKeys(roomId);
+    }
+  }, [roomId]);
+
   return {
     isReady: sharedKey !== null,
     publicKeys,
@@ -140,6 +330,7 @@ export function useHybridEncryption(): UseHybridEncryptionReturn {
     setOtherPublicKeys,
     encrypt,
     decrypt,
+    clearKeys,
   };
 }
 

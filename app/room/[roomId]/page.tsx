@@ -33,9 +33,16 @@ export default function HomeRoom() {
   } = useFetchMessages(roomId);
 
   const { data: ttlData } = useGetTimeRemaining(roomId);
+  const clearKeysRef = useRef<() => void>(() => {});
   const timeRemaining = useCountdown(ttlData?.ttl, () => {
+    clearKeysRef.current();
     router.push('/create?destroyed=true');
   });
+
+  // Mettre a jour la ref quand clearKeys change
+  useEffect(() => {
+    clearKeysRef.current = clearKeys;
+  }, [clearKeys]);
 
   const { username } = useUsername();
 
@@ -52,7 +59,8 @@ export default function HomeRoom() {
     setOtherPublicKeys,
     encrypt,
     decrypt,
-  } = useHybridEncryption();
+    clearKeys,
+  } = useHybridEncryption(roomId);
 
   // Cache des messages decryptes
   const decryptedCache = useRef<Map<string, string>>(new Map());
@@ -211,6 +219,7 @@ export default function HomeRoom() {
       }
 
       if (event === 'chat.destroy') {
+        clearKeysRef.current();
         router.push('/create?destroyed=true');
       }
 
