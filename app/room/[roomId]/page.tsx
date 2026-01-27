@@ -216,7 +216,9 @@ export default function HomeRoom() {
       // Refetch keys when other user sends their keys or ciphertext
       if (event === 'chat.keyExchange' || event === 'chat.kyberCiphertext') {
         console.log(`🔔 Received ${event} event, refetching keys...`);
-        refetchKeys();
+        refetchKeys().then((result) => {
+          console.log('📦 Refetch result:', result.data);
+        });
       }
     },
   });
