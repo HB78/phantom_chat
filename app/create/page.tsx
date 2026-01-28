@@ -4,6 +4,7 @@
 import AlertBanners from '@/components/AlertBanners';
 import { useCreateRoom } from '@/hooks/fetch/rooms';
 import { useUsername } from '@/hooks/use-username';
+import Link from 'next/link';
 import { Suspense } from 'react';
 
 export default function Home() {
@@ -57,6 +58,12 @@ export default function Home() {
             >
               {isPending ? 'CREATING...' : 'CREATE SECURE ROOM'}
             </button>
+            <Link
+              href="/"
+              className="mt-2 block w-full border border-zinc-700 p-3 text-center text-sm font-medium text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-zinc-900"
+            >
+              BACK TO HOME
+            </Link>
           </div>
         </section>
       </div>

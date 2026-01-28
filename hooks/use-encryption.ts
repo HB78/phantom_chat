@@ -51,8 +51,8 @@ async function saveKeysToStorage(roomId: string, keyPair: HybridKeyPair, publicK
       publicKeysExported: publicKeys,
     };
 
-    sessionStorage.setItem(`${STORAGE_KEY_PREFIX}${roomId}`, JSON.stringify(stored));
-    console.log('💾 Keys saved to sessionStorage');
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}${roomId}`, JSON.stringify(stored));
+    console.log('💾 Keys saved to localStorage');
   } catch (err) {
     console.error('Failed to save keys to storage:', err);
   }
@@ -60,7 +60,7 @@ async function saveKeysToStorage(roomId: string, keyPair: HybridKeyPair, publicK
 
 async function loadKeysFromStorage(roomId: string): Promise<{ keyPair: HybridKeyPair; publicKeys: ExportedPublicKeys } | null> {
   try {
-    const stored = sessionStorage.getItem(`${STORAGE_KEY_PREFIX}${roomId}`);
+    const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}${roomId}`);
     if (!stored) return null;
 
     const data: StoredKeys = JSON.parse(stored);
@@ -84,7 +84,7 @@ async function loadKeysFromStorage(roomId: string): Promise<{ keyPair: HybridKey
     const kyberPublicKey = Uint8Array.from(atob(data.kyber.publicKey), c => c.charCodeAt(0));
     const kyberPrivateKey = Uint8Array.from(atob(data.kyber.privateKey), c => c.charCodeAt(0));
 
-    console.log('📂 Keys restored from sessionStorage');
+    console.log('📂 Keys restored from localStorage');
 
     return {
       keyPair: {
@@ -108,8 +108,8 @@ async function saveSharedKeyToStorage(
   try {
     const keyJwk = await crypto.subtle.exportKey('jwk', sharedKey);
     const stored: StoredSharedKey = { key: keyJwk, isInitiator, kyberCiphertext };
-    sessionStorage.setItem(`${STORAGE_SHARED_PREFIX}${roomId}`, JSON.stringify(stored));
-    console.log('💾 Shared key saved to sessionStorage');
+    localStorage.setItem(`${STORAGE_SHARED_PREFIX}${roomId}`, JSON.stringify(stored));
+    console.log('💾 Shared key saved to localStorage');
   } catch (err) {
     console.error('Failed to save shared key:', err);
   }
@@ -117,7 +117,7 @@ async function saveSharedKeyToStorage(
 
 async function loadSharedKeyFromStorage(roomId: string): Promise<StoredSharedKey & { sharedKey: CryptoKey } | null> {
   try {
-    const stored = sessionStorage.getItem(`${STORAGE_SHARED_PREFIX}${roomId}`);
+    const stored = localStorage.getItem(`${STORAGE_SHARED_PREFIX}${roomId}`);
     if (!stored) return null;
 
     const data: StoredSharedKey = JSON.parse(stored);
@@ -130,7 +130,7 @@ async function loadSharedKeyFromStorage(roomId: string): Promise<StoredSharedKey
       ['encrypt', 'decrypt']
     );
 
-    console.log('📂 Shared key restored from sessionStorage');
+    console.log('📂 Shared key restored from localStorage');
 
     return { sharedKey, isInitiator: data.isInitiator, kyberCiphertext: data.kyberCiphertext };
   } catch (err) {
@@ -140,9 +140,9 @@ async function loadSharedKeyFromStorage(roomId: string): Promise<StoredSharedKey
 }
 
 export function clearEncryptionKeys(roomId: string): void {
-  sessionStorage.removeItem(`${STORAGE_KEY_PREFIX}${roomId}`);
-  sessionStorage.removeItem(`${STORAGE_SHARED_PREFIX}${roomId}`);
-  console.log('🗑️ Encryption keys cleared from sessionStorage');
+  localStorage.removeItem(`${STORAGE_KEY_PREFIX}${roomId}`);
+  localStorage.removeItem(`${STORAGE_SHARED_PREFIX}${roomId}`);
+  console.log('🗑️ Encryption keys cleared from localStorage');
 }
 
 /**
@@ -196,7 +196,7 @@ export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn 
     initRef.current = true;
 
     const init = async () => {
-      // Essayer de restaurer depuis sessionStorage
+      // Essayer de restaurer depuis localStorage
       if (roomId) {
         // D'abord verifier si on a une cle partagee
         const storedShared = await loadSharedKeyFromStorage(roomId);
@@ -209,7 +209,7 @@ export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn 
             setSharedKey(storedShared.sharedKey);
             setIsInitiator(storedShared.isInitiator);
             setKyberCiphertext(storedShared.kyberCiphertext);
-            console.log('✅ Full encryption state restored from sessionStorage');
+            console.log('✅ Full encryption state restored from localStorage');
             return;
           }
         }
@@ -235,7 +235,7 @@ export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn 
       setPublicKeys(exported);
       console.log('✅ Public keys exported and ready to send');
 
-      // Sauvegarder dans sessionStorage
+      // Sauvegarder dans localStorage
       if (roomId) {
         await saveKeysToStorage(roomId, keys, exported);
       }

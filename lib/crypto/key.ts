@@ -146,7 +146,7 @@ async function combineSecretsWithHKDF(
     },
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
-    false, // non extractable
+    true, // extractable pour pouvoir sauvegarder dans sessionStorage
     ['encrypt', 'decrypt']
   );
 
