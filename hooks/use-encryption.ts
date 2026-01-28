@@ -132,7 +132,7 @@ async function loadSharedKeyFromStorage(roomId: string): Promise<StoredSharedKey
 
     console.log('📂 Shared key restored from localStorage');
 
-    return { sharedKey, isInitiator: data.isInitiator, kyberCiphertext: data.kyberCiphertext };
+    return { key: data.key, sharedKey, isInitiator: data.isInitiator, kyberCiphertext: data.kyberCiphertext };
   } catch (err) {
     console.error('Failed to load shared key:', err);
     return null;
