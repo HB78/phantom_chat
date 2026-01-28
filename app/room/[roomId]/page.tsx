@@ -39,11 +39,6 @@ export default function HomeRoom() {
     router.push('/create?destroyed=true');
   });
 
-  // Mettre a jour la ref quand clearKeys change
-  useEffect(() => {
-    clearKeysRef.current = clearKeys;
-  }, [clearKeys]);
-
   const { username } = useUsername();
 
   const [input, setInput] = useState('');
@@ -61,6 +56,11 @@ export default function HomeRoom() {
     decrypt,
     clearKeys,
   } = useHybridEncryption(roomId);
+
+  // Mettre a jour la ref quand clearKeys change
+  useEffect(() => {
+    clearKeysRef.current = clearKeys;
+  }, [clearKeys]);
 
   // Cache des messages decryptes
   const decryptedCache = useRef<Map<string, string>>(new Map());
