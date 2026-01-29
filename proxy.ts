@@ -56,7 +56,7 @@ export async function proxy(request: NextRequest) {
     path: '/',
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    sameSite: 'lax',
   });
 
   await redis.hset(`meta:${roomId}`, { connected: [...meta.connected, token] });
