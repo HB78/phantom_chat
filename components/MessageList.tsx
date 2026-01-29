@@ -20,7 +20,7 @@ function MessageImage({ src, alt }: { src: string; alt: string }) {
   return (
     <>
       <div
-        className="relative mt-2 h-48 w-full max-w-xs cursor-pointer overflow-hidden rounded-md transition-transform hover:scale-[1.02]"
+        className="relative mt-2 h-48 w-full max-w-md cursor-pointer overflow-hidden rounded-md transition-transform hover:scale-[1.02]"
         onClick={() => setIsExpanded(true)}
       >
         <Image
@@ -42,8 +42,9 @@ function MessageImage({ src, alt }: { src: string; alt: string }) {
             <Image
               src={src}
               alt={alt}
-              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-              className="h-full w-full rounded-lg object-contain"
+              fill
+              className="rounded-lg object-contain"
+              unoptimized
             />
           </div>
           <button
