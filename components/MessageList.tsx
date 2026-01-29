@@ -42,13 +42,12 @@ function MessageImage({ src, alt }: { src: string; alt: string }) {
             <Image
               src={src}
               alt={alt}
-              fill
-              className="rounded-lg object-contain"
-              unoptimized
+              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+              className="h-full w-full rounded-lg object-contain"
             />
           </div>
           <button
-            className="absolute right-4 top-4 rounded-full bg-zinc-800 p-2 text-white hover:bg-zinc-700"
+            className="absolute top-4 right-4 rounded-full bg-zinc-800 p-2 text-white hover:bg-zinc-700"
             onClick={() => setIsExpanded(false)}
             aria-label="Fermer"
           >
@@ -71,7 +70,7 @@ const MessageList = ({
       aria-label="Chat messages"
       aria-live="polite"
       aria-busy={isLoading}
-      className="flex-1 space-y-4 overflow-y-auto p-4 scrollbar-thin scrollbar-track-zinc-900/50 scrollbar-thumb-green-500/50 hover:scrollbar-thumb-green-500/80 scrollbar-thumb-rounded-full scrollbar-track-rounded-full"
+      className="scrollbar-thin scrollbar-track-zinc-900/50 scrollbar-thumb-green-500/50 hover:scrollbar-thumb-green-500/80 scrollbar-thumb-rounded-full scrollbar-track-rounded-full flex-1 space-y-4 overflow-y-auto p-4"
     >
       {isLoading && (
         <div className="flex h-full items-center justify-center">
@@ -107,8 +106,8 @@ const MessageList = ({
             <div
               className={`group max-w-[80%] rounded-lg px-3 py-2 ${
                 isOwnMessage
-                  ? 'rounded-br-none bg-green-900/50 border border-green-500/30'
-                  : 'rounded-bl-none bg-zinc-800/50 border border-zinc-700/50'
+                  ? 'rounded-br-none border border-green-500/30 bg-green-900/50'
+                  : 'rounded-bl-none border border-zinc-700/50 bg-zinc-800/50'
               }`}
             >
               <header
@@ -129,10 +128,7 @@ const MessageList = ({
 
               {isImage ? (
                 // Afficher l'image
-                <MessageImage
-                  src={msg.text}
-                  alt={`Image de ${msg.sender}`}
-                />
+                <MessageImage src={msg.text} alt={`Image de ${msg.sender}`} />
               ) : (
                 // Afficher le texte
                 <p

@@ -1,7 +1,7 @@
 'use client';
 
 import { formatFileSize, isValidImageSize, isValidImageType } from '@/lib/image/process';
-import { ImageIcon, X } from 'lucide-react';
+import { ImageIcon, Loader2, X } from 'lucide-react';
 import Image from 'next/image';
 import { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
@@ -11,6 +11,7 @@ interface ImageUploadProps {
   onCancel: () => void;
   disabled?: boolean;
   maxSizeBytes?: number;
+  isUploading?: boolean;
 }
 
 const MAX_SIZE = 20 * 1024 * 1024; // 20MB
@@ -20,6 +21,7 @@ export function ImageUpload({
   onCancel,
   disabled = false,
   maxSizeBytes = MAX_SIZE,
+  isUploading = false,
 }: ImageUploadProps) {
   const [preview, setPreview] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -90,11 +92,15 @@ export function ImageUpload({
       <button
         type="button"
         onClick={open}
-        disabled={disabled}
+        disabled={disabled || isUploading}
         className="flex h-10 w-10 items-center justify-center rounded-md border border-zinc-700 bg-zinc-800 text-zinc-400 transition-colors hover:border-green-500 hover:text-green-400 disabled:cursor-not-allowed disabled:opacity-50"
         aria-label="Upload image"
       >
-        <ImageIcon className="h-5 w-5" />
+        {isUploading ? (
+          <Loader2 className="h-5 w-5 animate-spin text-green-400" />
+        ) : (
+          <ImageIcon className="h-5 w-5" />
+        )}
       </button>
 
       {/* Preview de l'image */}
