@@ -19,9 +19,11 @@ function MessageImage({ src, alt }: { src: string; alt: string }) {
 
   return (
     <>
-      <div
+      <button
+        type="button"
         className="relative mt-2 h-48 w-full max-w-md cursor-pointer overflow-hidden rounded-md transition-transform hover:scale-[1.02]"
         onClick={() => setIsExpanded(true)}
+        aria-label="Agrandir l'image"
       >
         <Image
           src={src}
@@ -30,13 +32,17 @@ function MessageImage({ src, alt }: { src: string; alt: string }) {
           className="object-contain"
           unoptimized
         />
-      </div>
+      </button>
 
       {/* Lightbox */}
       {isExpanded && (
         <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Image agrandie"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4"
           onClick={() => setIsExpanded(false)}
+          onKeyDown={(e) => e.key === 'Escape' && setIsExpanded(false)}
         >
           <div className="relative h-[90vh] w-[90vw]">
             <Image

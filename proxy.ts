@@ -7,7 +7,6 @@ const isDevelopment = process.env.NODE_ENV === 'development';
 const allowedOrigins = [
   'https://phantomchat.app',
   'https://www.phantomchat.app',
-  'https://phantomchat-bice.vercel.app',
 ];
 
 // This function can be marked `async` if using `await` inside
@@ -110,7 +109,7 @@ function appendCspHeaders(headers: Headers) {
       style-src 'self' 'unsafe-inline';
       img-src 'self' blob: data:;
       font-src 'self' data:;
-      connect-src 'self' https://phantomchat.app https://www.phantomchat.app https://phantomchat-bice.vercel.app https://${realtimeHost} https://${redisHost} wss://${realtimeHost};
+      connect-src 'self' https://phantomchat.app https://www.phantomchat.app https://${realtimeHost} https://${redisHost} wss://${realtimeHost};
       object-src 'none';
       base-uri 'self';
       form-action 'self';

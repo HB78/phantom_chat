@@ -67,10 +67,8 @@ export default function HomeRoom() {
 
   const { mutate: sendHybridPublicKeys } = useSendHybridPublicKeys();
   const { mutate: sendKyberCiphertext } = useSendKyberCiphertext();
-  const { data: otherKeyData, refetch: refetchKeys } = useGetOtherHybridPublicKeys(
-    roomId,
-    isEncryptionReady
-  );
+  const { data: otherKeyData, refetch: refetchKeys } =
+    useGetOtherHybridPublicKeys(roomId, isEncryptionReady);
 
   // Flag pour savoir si on a deja envoye le ciphertext
   const hasSentCiphertextRef = useRef(false);
@@ -90,14 +88,14 @@ export default function HomeRoom() {
     const processKeyExchange = async () => {
       // Skip if already ready or currently processing
       if (isEncryptionReady || isProcessingRef.current) return;
-      
+
       // Attendre d'avoir les cles de l'autre
       if (!otherKeyData?.ecdh || !otherKeyData?.kyber) {
-        console.log('⏳ Waiting for other user\'s keys...');
+        console.log("⏳ Waiting for other user's keys...");
         return;
       }
 
-      console.log('📥 Received other user\'s keys', {
+      console.log("📥 Received other user's keys", {
         hasEcdh: !!otherKeyData.ecdh,
         hasKyber: !!otherKeyData.kyber,
         hasCiphertext: !!otherKeyData.kyberCiphertext,
@@ -212,7 +210,12 @@ export default function HomeRoom() {
   // ============ REALTIME ============
   useRealtime({
     channels: [roomId],
-    events: ['chat.messageSchema', 'chat.destroy', 'chat.keyExchange', 'chat.kyberCiphertext'],
+    events: [
+      'chat.messageSchema',
+      'chat.destroy',
+      'chat.keyExchange',
+      'chat.kyberCiphertext',
+    ],
     onData: ({ event }) => {
       if (event === 'chat.messageSchema') {
         refetch();
@@ -243,7 +246,12 @@ export default function HomeRoom() {
       textToSend = await encrypt(input);
     }
 
-    sendMessage({ text: textToSend, sender: username, roomId, messageType: 'text' });
+    sendMessage({
+      text: textToSend,
+      sender: username,
+      roomId,
+      messageType: 'text',
+    });
     setInput('');
     inputRef.current?.focus();
   };
@@ -283,7 +291,9 @@ export default function HomeRoom() {
       });
     } catch (err) {
       console.error('Failed to send image:', err);
-      alert(err instanceof Error ? err.message : 'Erreur lors de l\'envoi de l\'image');
+      alert(
+        err instanceof Error ? err.message : "Erreur lors de l'envoi de l'image"
+      );
     } finally {
       setIsUploadingImage(false);
     }
@@ -346,7 +356,7 @@ export default function HomeRoom() {
               />
             </svg>
             <p className="text-sm font-medium text-green-400">
-              Chiffrement et envoi de l'image...
+              Chiffrement et envoi de l&apos;image...
             </p>
           </div>
         )}

@@ -35,7 +35,7 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' blob: data:",
               "font-src 'self' data:",
-              "connect-src 'self' https://phantomchat.app https://www.phantomchat.app https://phantomchat-bice.vercel.app https://*.upstash.io wss://*.upstash.io",
+              "connect-src 'self' https://phantomchat.app https://www.phantomchat.app https://*.upstash.io wss://*.upstash.io",
               "object-src 'none'",
               "base-uri 'self'",
               "form-action 'self'",
