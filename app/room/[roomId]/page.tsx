@@ -161,14 +161,15 @@ export default function HomeRoom() {
   }, [isEncryptionReady]);
 
   // Decrypter un message (avec cache)
-  const getDecryptedText = async (msg: { id: string; text: string; signature?: string }) => {
+  const getDecryptedText = async (msg: { id: string; text: string; signature?: string; isOwn?: boolean }) => {
     if (isEncryptionReady && decryptedCache.current.has(msg.id)) {
       return decryptedCache.current.get(msg.id)!;
     }
 
     if (isEncryptionReady) {
       try {
-        const result = await decrypt(msg.text, msg.signature);
+        // Ne pas vérifier la signature pour ses propres messages (clé DSA stockée = celle de l'autre)
+        const result = await decrypt(msg.text, msg.isOwn ? undefined : msg.signature);
         // null = signature invalide → afficher avertissement
         const decryptedText = result ?? '⚠️ Message rejected: invalid signature';
         decryptedCache.current.set(msg.id, decryptedText);
@@ -206,7 +207,7 @@ export default function HomeRoom() {
       const results = await Promise.all(
         messages.messages.map(async (msg) => ({
           ...msg,
-          text: await getDecryptedText({ id: msg.id, text: msg.text, signature: msg.signature }),
+          text: await getDecryptedText({ id: msg.id, text: msg.text, signature: msg.signature, isOwn: !!msg.token }),
         }))
       );
 
