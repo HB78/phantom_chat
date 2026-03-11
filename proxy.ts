@@ -9,9 +9,18 @@ const allowedOrigins = [
   'https://www.phantomchat.app',
 ];
 
+const BOT_USER_AGENTS = /whatsapp|facebookexternalhit|twitterbot|telegrambot|slackbot|linkedinbot|discordbot/i;
+
 // This function can be marked `async` if using `await` inside
 export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
+
+  // Bots (WhatsApp, Telegram, etc.) font des requêtes pour la prévisualisation
+  // On les laisse passer sans créer de token pour ne pas occuper une place dans la room
+  const userAgent = request.headers.get('user-agent') || '';
+  if (BOT_USER_AGENTS.test(userAgent)) {
+    return NextResponse.next();
+  }
 
   const roomMatch = pathname.match(/^\/room\/([^/]+)$/);
 
