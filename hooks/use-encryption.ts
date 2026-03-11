@@ -324,9 +324,10 @@ export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn 
         console.log('✅ Shared key derived as initiator');
       }
 
-      // Initialiser le Double Ratchet avec la cle partagee + cle DH de l'autre
+      // Initialiser le Double Ratchet avec la cle partagee + cle DH du handshake
       const otherDHPublic = Uint8Array.from(atob(otherKeys.ecdh), c => c.charCodeAt(0));
-      const ratchetState = await initRatchet(sharedSecret, initiator, otherDHPublic);
+      // Les deux users passent leur paire ECDH du handshake pour l'init symétrique
+      const ratchetState = await initRatchet(sharedSecret, initiator, otherDHPublic, keyPair.ecdh);
       ratchetRef.current = ratchetState;
       console.log('✅ Double Ratchet initialized');
 
@@ -337,9 +338,12 @@ export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn 
       // Stocker la cle publique DSA de l'autre
       if (otherKeys.dsa) {
         const otherDsaKey = importDSAPublicKey(otherKeys.dsa);
+        console.log('💾 Storing other DSA key, first 8 bytes:', Array.from(otherDsaKey.slice(0, 8)));
         setOtherDsaPublicKey(otherDsaKey);
         otherDsaPublicKeyRef.current = otherDsaKey;
         if (roomId) saveOtherDSAPublicKey(roomId, otherDsaKey);
+      } else {
+        console.warn('⚠️ No DSA key received in setOtherPublicKeys!');
       }
 
       // Sauvegarder
@@ -384,6 +388,7 @@ export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn 
 
       // Signer le message sérialisé avec ML-DSA
       const signature = signMessage(serialized, dsaKeyPair.secretKey);
+      console.log('✍️ Signed with DSA, my public key first 8 bytes:', Array.from(dsaKeyPair.publicKey.slice(0, 8)));
 
       return { ciphertext: serialized, signature };
     },
@@ -399,8 +404,13 @@ export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn 
 
       // Vérifier la signature ML-DSA si disponible
       const dsaKey = otherDsaPublicKeyRef.current;
+      console.log('🔍 Decrypt: dsaKey present?', !!dsaKey, '| signature present?', !!signature);
+      if (dsaKey) {
+        console.log('🔍 DSA key first 8 bytes:', Array.from(dsaKey.slice(0, 8)));
+      }
       if (signature && dsaKey) {
         const isValid = verifyMessage(ciphertext, signature, dsaKey);
+        console.log('🔍 Verify result:', isValid);
         if (!isValid) {
           console.warn('❌ Invalid DSA signature — message rejected');
           return null;

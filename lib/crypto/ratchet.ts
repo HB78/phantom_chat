@@ -233,36 +233,64 @@ async function aesDecrypt(ciphertextB64: string, key: Uint8Array): Promise<strin
 /**
  * Initialise l'état du Double Ratchet à partir de la clé partagée du handshake
  *
- * @param sharedSecret  - Secret partagé issu du handshake X25519+Kyber (32 bytes)
- * @param isInitiator   - true si tu es l'initiateur du handshake
- * @param otherDHPublic - Clé publique DH X25519 de l'autre (reçue pendant le handshake)
+ * @param sharedSecret       - Secret partagé issu du handshake X25519+Kyber (32 bytes)
+ * @param isInitiator        - true si tu es l'initiateur du handshake
+ * @param otherDHPublic      - Clé publique ECDH X25519 de l'autre (handshake)
+ * @param myHandshakeKeyPair - Ma paire de clés ECDH du handshake
+ *
+ * Protocole :
+ *   1. Les deux users calculent initialDH = DH(myHandshake_priv, other_handshake_pub)
+ *      → identique des deux côtés grâce à la propriété X25519 ✅
+ *   2. On dérive deux chaînes distinctes depuis (sharedSecret, initialDH) :
+ *      - initiatorChain : chaîne d'envoi de l'initiateur = chaîne de réception du responder
+ *      - responderChain : chaîne d'envoi du responder   = chaîne de réception de l'initiateur
+ *   3. La clé DH de ratchet initiale = clé ECDH du handshake
+ *      → quand le 1er message arrive, header.dhPublicKey == recvDHPublicKey → pas de DH step ✅
+ *      → les deux users peuvent envoyer des messages immédiatement ✅
  */
 export async function initRatchet(
   sharedSecret: Uint8Array,
   isInitiator: boolean,
-  otherDHPublic: Uint8Array
+  otherDHPublic: Uint8Array,
+  myHandshakeKeyPair: { publicKey: Uint8Array; privateKey: Uint8Array }
 ): Promise<RatchetState> {
-  // Générer notre première paire DH de ratchet
-  const sendDHPrivateKey = x25519.utils.randomSecretKey();
-  const sendDHPublicKey = x25519.getPublicKey(sendDHPrivateKey);
+  // DH initial identique des deux côtés
+  const initialDHSecret = x25519.getSharedSecret(myHandshakeKeyPair.privateKey, otherDHPublic);
 
-  let rootKey = sharedSecret;
-  let sendChainKey: Uint8Array | null = null;
-  let recvDHPublicKey: Uint8Array | null = null;
+  // Dériver deux chaînes distinctes avec des info différents
+  const initiatorChain = await hkdf(
+    new Uint8Array([...sharedSecret, ...initialDHSecret]),
+    SALT_ROOT,
+    'initiator-send-chain',
+    32
+  );
+  const responderChain = await hkdf(
+    new Uint8Array([...sharedSecret, ...initialDHSecret]),
+    SALT_ROOT,
+    'responder-send-chain',
+    32
+  );
 
-  // Les deux users font un tour DH initial pour initialiser leur sendChainKey
-  const dhSecret = x25519.getSharedSecret(sendDHPrivateKey, otherDHPublic);
-  const derived = await kdfRoot(rootKey, dhSecret);
-  rootKey = derived.newRootKey;
-  sendChainKey = derived.chainKey;
-  recvDHPublicKey = otherDHPublic;
+  // RootKey pour les futurs tours DH de ratchet
+  const rootKey = await hkdf(
+    new Uint8Array([...sharedSecret, ...initialDHSecret]),
+    SALT_ROOT,
+    'root-key',
+    32
+  );
 
+  // Les chaînes d'envoi/réception dépendent du rôle
+  const sendChainKey = isInitiator ? initiatorChain : responderChain;
+  const recvChainKey = isInitiator ? responderChain : initiatorChain;
+
+  // La clé DH de ratchet initiale = clé ECDH du handshake
+  // → les deux users se connaissent mutuellement cette clé, pas de DH step surprise au 1er message
   return {
     rootKey,
     sendChainKey,
-    recvChainKey: null,
-    sendDHKeyPair: { publicKey: sendDHPublicKey, privateKey: sendDHPrivateKey },
-    recvDHPublicKey,
+    recvChainKey,
+    sendDHKeyPair: myHandshakeKeyPair,
+    recvDHPublicKey: otherDHPublic,
     sendMsgNum: 0,
     recvMsgNum: 0,
     prevSendChainLen: 0,
