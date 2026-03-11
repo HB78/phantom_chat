@@ -31,12 +31,14 @@ export const useSendMessage = () => {
     mutationFn: async ({
       sender,
       text,
+      signature,
       roomId,
       messageType = 'text',
       imageMetadata,
     }: {
       sender: string;
       text: string;
+      signature?: string;
       roomId: string;
       messageType?: 'text' | 'image';
       imageMetadata?: {
@@ -46,7 +48,7 @@ export const useSendMessage = () => {
       };
     }) => {
       await client.messages.post(
-        { sender, text, messageType, imageMetadata },
+        { sender, text, signature, messageType, imageMetadata },
         { query: { roomId } }
       );
     },
@@ -97,6 +99,7 @@ export const useDestroyRoom = () => {
 export interface HybridPublicKeys {
   ecdh: string;
   kyber: string;
+  dsa?: string;
 }
 
 /**
@@ -105,6 +108,7 @@ export interface HybridPublicKeys {
 export interface OtherKeyData {
   ecdh: string | null;
   kyber: string | null;
+  dsa: string | null;
   kyberCiphertext: string | null;
   shouldBeInitiator: boolean;
 }
@@ -125,6 +129,7 @@ export const useSendHybridPublicKeys = () => {
         {
           ecdhPublicKey: publicKeys.ecdh,
           kyberPublicKey: publicKeys.kyber,
+          dsaPublicKey: publicKeys.dsa,
         },
         { query: { roomId } }
       );

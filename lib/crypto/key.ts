@@ -1,23 +1,32 @@
 // lib/crypto/keys.ts
 
+import { x25519 } from '@noble/curves/ed25519.js';
 import {
-  generateKyberKeyPair,
-  kyberEncapsulate,
-  kyberDecapsulate,
-  exportKyberPublicKey,
-  importKyberPublicKey,
   exportKyberCiphertext,
+  exportKyberPublicKey,
   importKyberCiphertext,
+  importKyberPublicKey,
+  generateKyberKeyPair,
+  kyberDecapsulate,
+  kyberEncapsulate,
   type KyberKeyPair,
 } from './kyber';
 
 // ============ TYPES ============
 
 /**
- * Paire de cles hybride (ECDH + Kyber)
+ * Paire de cles X25519
+ */
+export interface X25519KeyPair {
+  publicKey: Uint8Array;  // 32 bytes
+  privateKey: Uint8Array; // 32 bytes
+}
+
+/**
+ * Paire de cles hybride (X25519 + Kyber)
  */
 export interface HybridKeyPair {
-  ecdh: CryptoKeyPair;
+  ecdh: X25519KeyPair;
   kyber: KyberKeyPair;
 }
 
@@ -25,202 +34,161 @@ export interface HybridKeyPair {
  * Cles publiques exportees en base64
  */
 export interface ExportedPublicKeys {
-  ecdh: string; // ~65 bytes en base64
-  kyber: string; // ~1568 bytes en base64
+  ecdh: string;   // 32 bytes en base64 (X25519)
+  kyber: string;  // ~1568 bytes en base64 (ML-KEM-768)
+  dsa?: string;   // ~1312 bytes en base64 (ML-DSA-44) — optionnel pour compatibilité
 }
 
-// ============ ECDH (CLASSIQUE) ============
+// ============ X25519 ============
 
 /**
- * Genere une paire de cles ECDH (Elliptic Curve Diffie-Hellman)
- * - Cle publique : peut etre partagee avec l'autre user
- * - Cle privee : reste secrete sur l'appareil
+ * Genere une paire de cles X25519
+ * - Plus rapide que P-256
+ * - Resistant aux attaques par timing
+ * - Recommande par les cryptographes modernes
  */
-export async function generateKeyPair(): Promise<CryptoKeyPair> {
-  return await crypto.subtle.generateKey(
-    { name: 'ECDH', namedCurve: 'P-256' },
-    true, // extractable = true pour pouvoir exporter la cle publique
-    ['deriveKey', 'deriveBits'] // deriveBits necessaire pour le mode hybride
-  );
+export function generateKeyPair(): X25519KeyPair {
+  const privateKey = x25519.utils.randomSecretKey();
+  const publicKey = x25519.getPublicKey(privateKey);
+  return { privateKey, publicKey };
 }
 
 /**
- * Derive une cle partagee AES-256-GCM a partir de l'echange ECDH
- * @param privateKey - Ta cle privee
- * @param publicKey - La cle publique de l'autre user
- * @returns Une cle AES-256-GCM pour chiffrer/dechiffrer les messages
+ * Derive le secret partage X25519
+ * @param myPrivateKey - Ma cle privee X25519
+ * @param otherPublicKey - La cle publique X25519 de l'autre user
+ * @returns Le secret partage de 32 bytes
  */
-export async function deriveSharedKey(
-  privateKey: CryptoKey,
-  publicKey: CryptoKey
-): Promise<CryptoKey> {
-  return await crypto.subtle.deriveKey(
-    { name: 'ECDH', public: publicKey },
-    privateKey,
-    { name: 'AES-GCM', length: 256 },
-    false, // non extractable pour la securite
-    ['encrypt', 'decrypt']
-  );
+export function deriveX25519Secret(
+  myPrivateKey: Uint8Array,
+  otherPublicKey: Uint8Array
+): Uint8Array {
+  return x25519.getSharedSecret(myPrivateKey, otherPublicKey);
 }
 
 /**
- * Exporte une cle publique en base64 pour l'envoyer a l'autre user
- * @param publicKey - La cle publique a exporter
- * @returns La cle en format base64
+ * Exporte une cle publique X25519 en base64
  */
-export async function exportPublicKey(publicKey: CryptoKey): Promise<string> {
-  const exported = await crypto.subtle.exportKey('raw', publicKey);
-  return btoa(String.fromCharCode(...new Uint8Array(exported)));
+export function exportPublicKey(publicKey: Uint8Array): string {
+  return btoa(String.fromCharCode(...publicKey));
 }
 
 /**
- * Importe une cle publique recue de l'autre user
- * @param base64Key - La cle publique en base64
- * @returns Un objet CryptoKey utilisable pour deriveSharedKey
+ * Importe une cle publique X25519 depuis base64
  */
-export async function importPublicKey(base64Key: string): Promise<CryptoKey> {
-  const keyData = Uint8Array.from(atob(base64Key), (c) => c.charCodeAt(0));
-  return await crypto.subtle.importKey(
-    'raw',
-    keyData,
-    { name: 'ECDH', namedCurve: 'P-256' },
-    true,
-    []
-  );
+export function importPublicKey(base64Key: string): Uint8Array {
+  return Uint8Array.from(atob(base64Key), (c) => c.charCodeAt(0));
 }
 
-// ============ HYBRIDE (ECDH + KYBER) ============
+// ============ HYBRIDE (X25519 + KYBER) ============
 
 /**
- * Genere une paire de cles hybride (ECDH + Kyber)
- * C'est la fonction principale a utiliser pour le chiffrement post-quantique
+ * Genere une paire de cles hybride (X25519 + Kyber)
  */
 export async function generateHybridKeyPair(): Promise<HybridKeyPair> {
-  const [ecdh, kyber] = await Promise.all([
-    generateKeyPair(),
-    generateKyberKeyPair(),
-  ]);
+  const ecdh = generateKeyPair();
+  const kyber = await generateKyberKeyPair();
   return { ecdh, kyber };
 }
 
 /**
  * Exporte les cles publiques hybrides en base64
+ * @param dsaPublicKey - Optionnel, cle publique ML-DSA a inclure
  */
-export async function exportHybridPublicKeys(
-  hybridKeyPair: HybridKeyPair
-): Promise<ExportedPublicKeys> {
-  const ecdhBase64 = await exportPublicKey(hybridKeyPair.ecdh.publicKey);
-  const kyberBase64 = exportKyberPublicKey(hybridKeyPair.kyber.publicKey);
-  return { ecdh: ecdhBase64, kyber: kyberBase64 };
+export function exportHybridPublicKeys(
+  hybridKeyPair: HybridKeyPair,
+  dsaPublicKey?: Uint8Array
+): ExportedPublicKeys {
+  const keys: ExportedPublicKeys = {
+    ecdh: exportPublicKey(hybridKeyPair.ecdh.publicKey),
+    kyber: exportKyberPublicKey(hybridKeyPair.kyber.publicKey),
+  };
+  if (dsaPublicKey) {
+    keys.dsa = btoa(String.fromCharCode(...dsaPublicKey));
+  }
+  return keys;
 }
 
 /**
- * Combine deux secrets avec HKDF pour creer une cle AES-256
- * HKDF = HMAC-based Key Derivation Function
+ * Combine X25519 + Kyber secrets avec HKDF → 32 bytes bruts
+ * Ce secret brut est utilisé comme rootKey du Double Ratchet
  */
-async function combineSecretsWithHKDF(
-  ecdhSecret: ArrayBuffer,
+async function combineRawSecrets(
+  x25519Secret: Uint8Array,
   kyberSecret: Uint8Array
-): Promise<CryptoKey> {
-  // Combiner les deux secrets
-  const combined = new Uint8Array(ecdhSecret.byteLength + kyberSecret.length);
-  combined.set(new Uint8Array(ecdhSecret), 0);
-  combined.set(kyberSecret, ecdhSecret.byteLength);
+): Promise<Uint8Array> {
+  const combined = new Uint8Array(x25519Secret.length + kyberSecret.length);
+  combined.set(x25519Secret, 0);
+  combined.set(kyberSecret, x25519Secret.length);
 
-  // Importer comme materiel de cle pour HKDF
   const keyMaterial = await crypto.subtle.importKey(
-    'raw',
-    combined,
-    'HKDF',
-    false,
-    ['deriveKey']
+    'raw', combined, 'HKDF', false, ['deriveBits']
   );
-
-  // Deriver la cle finale AES-256-GCM avec HKDF
-  const finalKey = await crypto.subtle.deriveKey(
+  const bits = await crypto.subtle.deriveBits(
     {
       name: 'HKDF',
       hash: 'SHA-256',
-      salt: new TextEncoder().encode('PhantomChat-Hybrid-E2E-v1'),
-      info: new TextEncoder().encode('AES-256-GCM'),
+      salt: new TextEncoder().encode('PhantomChat-Hybrid-E2E-v2'),
+      info: new TextEncoder().encode('root-key'),
     },
     keyMaterial,
-    { name: 'AES-GCM', length: 256 },
-    true, // extractable pour pouvoir sauvegarder dans sessionStorage
-    ['encrypt', 'decrypt']
+    256
   );
+  return new Uint8Array(bits);
+}
 
-  return finalKey;
+/**
+ * Convertit un secret brut (32 bytes) en CryptoKey AES-256-GCM
+ * Utilisé pour le fallback sans ratchet
+ */
+async function rawSecretToCryptoKey(secret: Uint8Array): Promise<CryptoKey> {
+  return crypto.subtle.importKey(
+    'raw', secret.buffer as ArrayBuffer, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']
+  );
 }
 
 /**
  * Derive la cle partagee hybride (INITIATEUR)
- * L'initiateur encapsule avec Kyber et derive avec ECDH
- *
- * @param myKeyPair - Ma paire de cles hybride
- * @param otherEcdhPublicKey - Cle publique ECDH de l'autre (base64)
- * @param otherKyberPublicKey - Cle publique Kyber de l'autre (base64)
- * @returns { sharedKey, kyberCiphertext } - La cle partagee et le ciphertext a envoyer
+ * Retourne aussi le secret brut pour initialiser le Double Ratchet
  */
 export async function deriveHybridSharedKeyAsInitiator(
   myKeyPair: HybridKeyPair,
   otherEcdhPublicKey: string,
   otherKyberPublicKey: string
-): Promise<{ sharedKey: CryptoKey; kyberCiphertext: string }> {
-  // 1. ECDH: Deriver le secret classique
-  const otherEcdh = await importPublicKey(otherEcdhPublicKey);
-  const ecdhSecret = await crypto.subtle.deriveBits(
-    { name: 'ECDH', public: otherEcdh },
-    myKeyPair.ecdh.privateKey,
-    256
-  );
+): Promise<{ sharedKey: CryptoKey; sharedSecret: Uint8Array; kyberCiphertext: string }> {
+  const otherX25519 = importPublicKey(otherEcdhPublicKey);
+  const x25519Secret = deriveX25519Secret(myKeyPair.ecdh.privateKey, otherX25519);
 
-  // 2. Kyber: Encapsuler pour obtenir le secret post-quantique
   const otherKyber = importKyberPublicKey(otherKyberPublicKey);
-  const { ciphertext, sharedSecret: kyberSecret } =
-    await kyberEncapsulate(otherKyber);
+  const { ciphertext, sharedSecret: kyberSecret } = await kyberEncapsulate(otherKyber);
 
-  // 3. Combiner les deux secrets avec HKDF
-  const sharedKey = await combineSecretsWithHKDF(ecdhSecret, kyberSecret);
+  const sharedSecret = await combineRawSecrets(x25519Secret, kyberSecret);
+  const sharedKey = await rawSecretToCryptoKey(sharedSecret);
 
-  // 4. Retourner la cle et le ciphertext a envoyer
   return {
     sharedKey,
+    sharedSecret,
     kyberCiphertext: exportKyberCiphertext(ciphertext),
   };
 }
 
 /**
  * Derive la cle partagee hybride (DESTINATAIRE)
- * Le destinataire decapsule avec Kyber et derive avec ECDH
- *
- * @param myKeyPair - Ma paire de cles hybride
- * @param otherEcdhPublicKey - Cle publique ECDH de l'autre (base64)
- * @param kyberCiphertext - Ciphertext Kyber recu de l'initiateur (base64)
- * @returns La cle partagee AES-256-GCM
+ * Retourne aussi le secret brut pour initialiser le Double Ratchet
  */
 export async function deriveHybridSharedKeyAsResponder(
   myKeyPair: HybridKeyPair,
   otherEcdhPublicKey: string,
   kyberCiphertext: string
-): Promise<CryptoKey> {
-  // 1. ECDH: Deriver le secret classique
-  const otherEcdh = await importPublicKey(otherEcdhPublicKey);
-  const ecdhSecret = await crypto.subtle.deriveBits(
-    { name: 'ECDH', public: otherEcdh },
-    myKeyPair.ecdh.privateKey,
-    256
-  );
+): Promise<{ sharedKey: CryptoKey; sharedSecret: Uint8Array }> {
+  const otherX25519 = importPublicKey(otherEcdhPublicKey);
+  const x25519Secret = deriveX25519Secret(myKeyPair.ecdh.privateKey, otherX25519);
 
-  // 2. Kyber: Decapsuler pour obtenir le secret post-quantique
   const ciphertext = importKyberCiphertext(kyberCiphertext);
-  const kyberSecret = await kyberDecapsulate(
-    ciphertext,
-    myKeyPair.kyber.privateKey
-  );
+  const kyberSecret = await kyberDecapsulate(ciphertext, myKeyPair.kyber.privateKey);
 
-  // 3. Combiner les deux secrets avec HKDF
-  const sharedKey = await combineSecretsWithHKDF(ecdhSecret, kyberSecret);
+  const sharedSecret = await combineRawSecrets(x25519Secret, kyberSecret);
+  const sharedKey = await rawSecretToCryptoKey(sharedSecret);
 
-  return sharedKey;
+  return { sharedKey, sharedSecret };
 }

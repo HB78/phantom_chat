@@ -59,16 +59,17 @@ const rooms = new Elysia({ prefix: '/room' })
   .post(
     '/keys',
     async ({ body, auth }) => {
-      const { ecdhPublicKey, kyberPublicKey } = body;
+      const { ecdhPublicKey, kyberPublicKey, dsaPublicKey } = body;
 
       console.log(`📥 [${auth.token.slice(0, 8)}] Storing public keys for room ${auth.roomId}`);
 
       // Stocker les cles publiques dans Redis
-      // Format: keys:roomId = { "token-alice": { ecdh: "...", kyber: "..." }, ... }
+      // Format: keys:roomId = { "token-alice": { ecdh: "...", kyber: "...", dsa: "..." }, ... }
       await redis.hset(`keys:${auth.roomId}`, {
         [auth.token]: JSON.stringify({
           ecdh: ecdhPublicKey,
           kyber: kyberPublicKey,
+          dsa: dsaPublicKey,
         }),
       });
 
@@ -91,6 +92,7 @@ const rooms = new Elysia({ prefix: '/room' })
       body: z.object({
         ecdhPublicKey: z.string(),
         kyberPublicKey: z.string(),
+        dsaPublicKey: z.string().optional(),
       }),
     }
   )
@@ -158,6 +160,7 @@ const rooms = new Elysia({ prefix: '/room' })
       return {
         ecdh: otherKeys.ecdh || null,
         kyber: otherKeys.kyber || null,
+        dsa: (otherKeys as { ecdh?: string; kyber?: string; dsa?: string }).dsa || null,
         kyberCiphertext,
         shouldBeInitiator,
       };
@@ -235,7 +238,7 @@ const messages = new Elysia({ prefix: '/messages' })
   .post(
     '/',
     async ({ body, auth }) => {
-      const { sender, text, messageType, imageMetadata } = body;
+      const { sender, text, signature, messageType, imageMetadata } = body;
 
       const { roomId } = auth;
 
@@ -248,6 +251,7 @@ const messages = new Elysia({ prefix: '/messages' })
         id: nanoid(),
         sender,
         text,
+        signature,
         timestamp: Date.now(),
         roomId,
         messageType: messageType || 'text',
@@ -270,6 +274,7 @@ const messages = new Elysia({ prefix: '/messages' })
       body: z.object({
         sender: z.string().max(100),
         text: z.string().max(5000000), // Augmente pour les images en base64 chiffrees
+        signature: z.string().optional(), // Signature ML-DSA (base64)
         messageType: z.enum(['text', 'image']).optional(),
         imageMetadata: z.object({
           mimeType: z.string(),

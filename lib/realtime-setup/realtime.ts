@@ -6,6 +6,7 @@ const messageSchema = z.object({
   id: z.string(),
   sender: z.string().max(100),
   text: z.string().max(5000000), // Augmente pour les images en base64 chiffrees
+  signature: z.string().optional(), // Signature ML-DSA (base64, ~2420 bytes)
   timestamp: z.number(),
   roomId: z.string(),
   token: z.string().optional(),

@@ -1,31 +1,61 @@
 import {
-    decryptMessage,
     deriveHybridSharedKeyAsInitiator,
     deriveHybridSharedKeyAsResponder,
-    encryptMessage,
     exportHybridPublicKeys,
     generateHybridKeyPair,
     type ExportedPublicKeys,
     type HybridKeyPair,
+    generateDSAKeyPair,
+    importDSAPublicKey,
+    exportDSAKeyPairForStorage,
+    importDSAKeyPairFromStorage,
+    signMessage,
+    verifyMessage,
+    type DSAKeyPair,
+    type StoredDSAKeys,
+    initRatchet,
+    ratchetEncrypt,
+    ratchetDecrypt,
+    saveRatchetState,
+    loadRatchetState,
+    clearRatchetState,
+    type RatchetState,
+    type RatchetMessage,
 } from '@/lib/crypto';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 // ============ STORAGE KEYS ============
 const STORAGE_KEY_PREFIX = 'phantom_keys_';
 const STORAGE_SHARED_PREFIX = 'phantom_shared_';
+const STORAGE_DSA_PREFIX = 'phantom_dsa_';
 
 // ============ STORAGE HELPERS ============
 
 interface StoredKeys {
   ecdh: {
-    publicKey: JsonWebKey;
-    privateKey: JsonWebKey;
+    publicKey: string; // base64 (X25519, 32 bytes)
+    privateKey: string; // base64 (X25519, 32 bytes)
   };
   kyber: {
     publicKey: string; // base64
     privateKey: string; // base64
   };
   publicKeysExported: ExportedPublicKeys;
+}
+
+function saveDSAKeysToStorage(roomId: string, dsaKeyPair: DSAKeyPair): void {
+  const stored: StoredDSAKeys = exportDSAKeyPairForStorage(dsaKeyPair);
+  localStorage.setItem(`${STORAGE_DSA_PREFIX}${roomId}`, JSON.stringify(stored));
+}
+
+function loadDSAKeysFromStorage(roomId: string): DSAKeyPair | null {
+  try {
+    const stored = localStorage.getItem(`${STORAGE_DSA_PREFIX}${roomId}`);
+    if (!stored) return null;
+    return importDSAKeyPairFromStorage(JSON.parse(stored));
+  } catch {
+    return null;
+  }
 }
 
 interface StoredSharedKey {
@@ -36,13 +66,10 @@ interface StoredSharedKey {
 
 async function saveKeysToStorage(roomId: string, keyPair: HybridKeyPair, publicKeys: ExportedPublicKeys): Promise<void> {
   try {
-    const ecdhPublicJwk = await crypto.subtle.exportKey('jwk', keyPair.ecdh.publicKey);
-    const ecdhPrivateJwk = await crypto.subtle.exportKey('jwk', keyPair.ecdh.privateKey);
-
     const stored: StoredKeys = {
       ecdh: {
-        publicKey: ecdhPublicJwk,
-        privateKey: ecdhPrivateJwk,
+        publicKey: btoa(String.fromCharCode(...keyPair.ecdh.publicKey)),
+        privateKey: btoa(String.fromCharCode(...keyPair.ecdh.privateKey)),
       },
       kyber: {
         publicKey: btoa(String.fromCharCode(...keyPair.kyber.publicKey)),
@@ -58,29 +85,15 @@ async function saveKeysToStorage(roomId: string, keyPair: HybridKeyPair, publicK
   }
 }
 
-async function loadKeysFromStorage(roomId: string): Promise<{ keyPair: HybridKeyPair; publicKeys: ExportedPublicKeys } | null> {
+function loadKeysFromStorage(roomId: string): { keyPair: HybridKeyPair; publicKeys: ExportedPublicKeys } | null {
   try {
     const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}${roomId}`);
     if (!stored) return null;
 
     const data: StoredKeys = JSON.parse(stored);
 
-    const ecdhPublicKey = await crypto.subtle.importKey(
-      'jwk',
-      data.ecdh.publicKey,
-      { name: 'ECDH', namedCurve: 'P-256' },
-      true,
-      []
-    );
-
-    const ecdhPrivateKey = await crypto.subtle.importKey(
-      'jwk',
-      data.ecdh.privateKey,
-      { name: 'ECDH', namedCurve: 'P-256' },
-      true,
-      ['deriveKey', 'deriveBits']
-    );
-
+    const ecdhPublicKey = Uint8Array.from(atob(data.ecdh.publicKey), c => c.charCodeAt(0));
+    const ecdhPrivateKey = Uint8Array.from(atob(data.ecdh.privateKey), c => c.charCodeAt(0));
     const kyberPublicKey = Uint8Array.from(atob(data.kyber.publicKey), c => c.charCodeAt(0));
     const kyberPrivateKey = Uint8Array.from(atob(data.kyber.privateKey), c => c.charCodeAt(0));
 
@@ -157,7 +170,7 @@ export interface HybridPublicKeyData {
 interface UseHybridEncryptionReturn {
   /** true quand le chiffrement E2E hybride est pret */
   isReady: boolean;
-  /** Tes cles publiques en base64 a envoyer a l'autre user */
+  /** Tes cles publiques en base64 a envoyer a l'autre user (ecdh + kyber + dsa) */
   publicKeys: ExportedPublicKeys | null;
   /** true si tu es l'initiateur (premier a recevoir la cle de l'autre) */
   isInitiator: boolean;
@@ -165,17 +178,20 @@ interface UseHybridEncryptionReturn {
   kyberCiphertext: string | null;
   /**
    * Appeler avec les cles publiques de l'autre user pour activer le chiffrement
-   * @param keys - Cles publiques de l'autre user
+   * @param keys - Cles publiques de l'autre user (ecdh + kyber + dsa optionnel)
    * @param kyberCiphertext - Ciphertext Kyber (seulement pour le destinataire)
    */
   setOtherPublicKeys: (
-    keys: { ecdh: string; kyber: string },
+    keys: { ecdh: string; kyber: string; dsa?: string },
     kyberCiphertext?: string
   ) => Promise<void>;
-  /** Chiffre un message */
-  encrypt: (message: string) => Promise<string>;
-  /** Dechiffre un message */
-  decrypt: (encryptedMessage: string) => Promise<string>;
+  /** Chiffre un message et retourne { ciphertext, signature } */
+  encrypt: (message: string) => Promise<{ ciphertext: string; signature: string }>;
+  /**
+   * Dechiffre un message apres verification de la signature
+   * @returns Le message dechiffre, ou null si la signature est invalide
+   */
+  decrypt: (ciphertext: string, signature?: string) => Promise<string | null>;
   /** Nettoie les cles stockees */
   clearKeys: () => void;
 }
@@ -186,6 +202,9 @@ export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn 
   const [sharedKey, setSharedKey] = useState<CryptoKey | null>(null);
   const [isInitiator, setIsInitiator] = useState(false);
   const [kyberCiphertext, setKyberCiphertext] = useState<string | null>(null);
+  const [dsaKeyPair, setDsaKeyPair] = useState<DSAKeyPair | null>(null);
+  const [otherDsaPublicKey, setOtherDsaPublicKey] = useState<Uint8Array | null>(null);
+  const ratchetRef = useRef<RatchetState | null>(null);
 
   // Ref pour eviter les doubles initialisations en mode strict
   const initRef = useRef(false);
@@ -202,42 +221,53 @@ export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn 
         const storedShared = await loadSharedKeyFromStorage(roomId);
         if (storedShared) {
           // On a deja une session etablie, restaurer tout
-          const storedKeys = await loadKeysFromStorage(roomId);
+          const storedKeys = loadKeysFromStorage(roomId);
           if (storedKeys) {
             setKeyPair(storedKeys.keyPair);
             setPublicKeys(storedKeys.publicKeys);
             setSharedKey(storedShared.sharedKey);
             setIsInitiator(storedShared.isInitiator);
             setKyberCiphertext(storedShared.kyberCiphertext);
+            const storedDsa = loadDSAKeysFromStorage(roomId);
+            if (storedDsa) setDsaKeyPair(storedDsa);
+            // Restaurer le ratchet
+            const storedRatchet = loadRatchetState(roomId);
+            if (storedRatchet) ratchetRef.current = storedRatchet;
             console.log('✅ Full encryption state restored from localStorage');
             return;
           }
         }
 
         // Sinon verifier si on a juste les cles (pas encore de shared key)
-        const storedKeys = await loadKeysFromStorage(roomId);
+        const storedKeys = loadKeysFromStorage(roomId);
         if (storedKeys) {
           setKeyPair(storedKeys.keyPair);
           setPublicKeys(storedKeys.publicKeys);
+          const storedDsa = loadDSAKeysFromStorage(roomId);
+          if (storedDsa) setDsaKeyPair(storedDsa);
           console.log('✅ Key pair restored, waiting for key exchange');
           return;
         }
       }
 
       // Rien en storage, generer de nouvelles cles
-      console.log('🔐 Generating hybrid key pair (ECDH + Kyber)...');
+      console.log('🔐 Generating hybrid key pair (X25519 + Kyber + ML-DSA)...');
       const keys = await generateHybridKeyPair();
       setKeyPair(keys);
-      console.log('✅ Key pair generated');
 
-      // Exporter les cles publiques
-      const exported = await exportHybridPublicKeys(keys);
+      // Generer les cles DSA
+      const dsa = generateDSAKeyPair();
+      setDsaKeyPair(dsa);
+
+      // Exporter les cles publiques avec DSA
+      const exported = exportHybridPublicKeys(keys, dsa.publicKey);
       setPublicKeys(exported);
-      console.log('✅ Public keys exported and ready to send');
+      console.log('✅ Key pairs generated and ready to send');
 
       // Sauvegarder dans localStorage
       if (roomId) {
         await saveKeysToStorage(roomId, keys, exported);
+        saveDSAKeysToStorage(roomId, dsa);
       }
     };
     init();
@@ -246,7 +276,7 @@ export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn 
   // 2. Recevoir les cles publiques de l'autre user et calculer la cle partagee
   const setOtherPublicKeys = useCallback(
     async (
-      otherKeys: { ecdh: string; kyber: string },
+      otherKeys: { ecdh: string; kyber: string; dsa?: string },
       receivedKyberCiphertext?: string
     ) => {
       if (!keyPair) {
@@ -257,73 +287,135 @@ export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn 
       let initiator: boolean;
       let ciphertext: string | null = null;
 
+      let sharedSecret: Uint8Array;
+
       if (receivedKyberCiphertext) {
-        // Je suis le DESTINATAIRE (j'ai recu le ciphertext de l'initiateur)
         console.log('🔑 Deriving shared key as RESPONDER...');
-        shared = await deriveHybridSharedKeyAsResponder(
-          keyPair,
-          otherKeys.ecdh,
-          receivedKyberCiphertext
-        );
-        initiator = false;
-        console.log('✅ Shared key derived as responder, encryption ready!');
-      } else {
-        // Je suis l'INITIATEUR (premier a recevoir les cles de l'autre)
-        console.log('🔑 Deriving shared key as INITIATOR...');
-        const result = await deriveHybridSharedKeyAsInitiator(
-          keyPair,
-          otherKeys.ecdh,
-          otherKeys.kyber
+        const result = await deriveHybridSharedKeyAsResponder(
+          keyPair, otherKeys.ecdh, receivedKyberCiphertext
         );
         shared = result.sharedKey;
+        sharedSecret = result.sharedSecret;
+        initiator = false;
+        console.log('✅ Shared key derived as responder');
+      } else {
+        console.log('🔑 Deriving shared key as INITIATOR...');
+        const result = await deriveHybridSharedKeyAsInitiator(
+          keyPair, otherKeys.ecdh, otherKeys.kyber
+        );
+        shared = result.sharedKey;
+        sharedSecret = result.sharedSecret;
         ciphertext = result.kyberCiphertext;
         initiator = true;
-        console.log('✅ Shared key derived as initiator, encryption ready!');
+        console.log('✅ Shared key derived as initiator');
       }
+
+      // Initialiser le Double Ratchet avec la cle partagee + cle DH de l'autre
+      const otherDHPublic = Uint8Array.from(atob(otherKeys.ecdh), c => c.charCodeAt(0));
+      const ratchetState = await initRatchet(sharedSecret, initiator, otherDHPublic);
+      ratchetRef.current = ratchetState;
+      console.log('✅ Double Ratchet initialized');
 
       setSharedKey(shared);
       setIsInitiator(initiator);
       setKyberCiphertext(ciphertext);
 
-      // Sauvegarder la cle partagee
+      // Stocker la cle publique DSA de l'autre
+      if (otherKeys.dsa) {
+        setOtherDsaPublicKey(importDSAPublicKey(otherKeys.dsa));
+      }
+
+      // Sauvegarder
       if (roomId) {
         await saveSharedKeyToStorage(roomId, shared, initiator, ciphertext);
+        saveRatchetState(roomId, ratchetState);
       }
     },
     [keyPair, roomId]
   );
 
-  // 3. Chiffrer un message
+  // 3. Chiffrer avec Double Ratchet + signer avec ML-DSA
   const encrypt = useCallback(
-    async (message: string): Promise<string> => {
-      if (!sharedKey) {
-        throw new Error('Encryption not ready - no shared key');
+    async (message: string): Promise<{ ciphertext: string; signature: string }> => {
+      if (!ratchetRef.current) {
+        throw new Error('Ratchet not initialized');
       }
-      return encryptMessage(message, sharedKey);
+      if (!dsaKeyPair) {
+        throw new Error('DSA keys not ready');
+      }
+
+      // Chiffrer avec le ratchet (fait avancer le ratchet symétrique)
+      const { state: newState, message: ratchetMsg } = await ratchetEncrypt(
+        ratchetRef.current,
+        message
+      );
+      ratchetRef.current = newState;
+
+      // Sauvegarder le nouvel état ratchet
+      if (roomId) saveRatchetState(roomId, newState);
+
+      // Sérialiser le message ratchet (header + ciphertext) en JSON base64
+      const serialized = btoa(JSON.stringify(ratchetMsg));
+
+      // Signer le message sérialisé avec ML-DSA
+      const signature = signMessage(serialized, dsaKeyPair.secretKey);
+
+      return { ciphertext: serialized, signature };
     },
-    [sharedKey]
+    [dsaKeyPair, roomId]
   );
 
-  // 4. Dechiffrer un message
+  // 4. Vérifier la signature ML-DSA + déchiffrer avec Double Ratchet
   const decrypt = useCallback(
-    async (encryptedMessage: string): Promise<string> => {
-      if (!sharedKey) {
-        throw new Error('Decryption not ready - no shared key');
+    async (ciphertext: string, signature?: string): Promise<string | null> => {
+      if (!ratchetRef.current) {
+        throw new Error('Ratchet not initialized');
       }
-      return decryptMessage(encryptedMessage, sharedKey);
+
+      // Vérifier la signature ML-DSA si disponible
+      if (signature && otherDsaPublicKey) {
+        const isValid = verifyMessage(ciphertext, signature, otherDsaPublicKey);
+        if (!isValid) {
+          console.warn('❌ Invalid DSA signature — message rejected');
+          return null;
+        }
+      }
+
+      // Désérialiser le message ratchet
+      let ratchetMsg: RatchetMessage;
+      try {
+        ratchetMsg = JSON.parse(atob(ciphertext));
+      } catch {
+        throw new Error('Invalid ratchet message format');
+      }
+
+      // Déchiffrer avec le ratchet (fait avancer le ratchet de réception)
+      const { state: newState, plaintext } = await ratchetDecrypt(
+        ratchetRef.current,
+        ratchetMsg
+      );
+      ratchetRef.current = newState;
+
+      // Sauvegarder le nouvel état ratchet
+      if (roomId) saveRatchetState(roomId, newState);
+
+      return plaintext;
     },
-    [sharedKey]
+    [otherDsaPublicKey, roomId]
   );
 
   // 5. Nettoyer les cles
   const clearKeys = useCallback(() => {
     if (roomId) {
       clearEncryptionKeys(roomId);
+      localStorage.removeItem(`${STORAGE_DSA_PREFIX}${roomId}`);
+      clearRatchetState(roomId);
     }
+    ratchetRef.current = null;
   }, [roomId]);
 
   return {
-    isReady: sharedKey !== null,
+    isReady: sharedKey !== null && ratchetRef.current !== null,
     publicKeys,
     isInitiator,
     kyberCiphertext,
@@ -340,11 +432,13 @@ export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn 
 // Tu peux supprimer ca une fois la migration terminee
 
 import {
-    deriveSharedKey,
     exportPublicKey,
     generateKeyPair,
     importPublicKey,
+    encryptMessage,
+    decryptMessage,
 } from '@/lib/crypto';
+import { deriveX25519Secret } from '@/lib/crypto/key';
 
 interface UseEncryptionReturn {
   isReady: boolean;
@@ -355,18 +449,14 @@ interface UseEncryptionReturn {
 }
 
 export function useEncryption(): UseEncryptionReturn {
-  const [keyPair, setKeyPair] = useState<CryptoKeyPair | null>(null);
+  const [keyPair, setKeyPair] = useState<{ publicKey: Uint8Array; privateKey: Uint8Array } | null>(null);
   const [publicKeyBase64, setPublicKeyBase64] = useState<string | null>(null);
   const [sharedKey, setSharedKey] = useState<CryptoKey | null>(null);
 
   useEffect(() => {
-    const init = async () => {
-      const keys = await generateKeyPair();
-      setKeyPair(keys);
-      const exported = await exportPublicKey(keys.publicKey);
-      setPublicKeyBase64(exported);
-    };
-    init();
+    const keys = generateKeyPair();
+    setKeyPair(keys);
+    setPublicKeyBase64(exportPublicKey(keys.publicKey));
   }, []);
 
   const setOtherPublicKey = useCallback(
@@ -374,8 +464,16 @@ export function useEncryption(): UseEncryptionReturn {
       if (!keyPair) {
         throw new Error('Key pair not generated yet');
       }
-      const otherPublicKey = await importPublicKey(otherPublicKeyBase64);
-      const shared = await deriveSharedKey(keyPair.privateKey, otherPublicKey);
+      const otherPublicKey = importPublicKey(otherPublicKeyBase64);
+      const x25519Secret = deriveX25519Secret(keyPair.privateKey, otherPublicKey);
+      const keyMaterial = await crypto.subtle.importKey('raw', x25519Secret.buffer as ArrayBuffer, 'HKDF', false, ['deriveKey']);
+      const shared = await crypto.subtle.deriveKey(
+        { name: 'HKDF', hash: 'SHA-256', salt: new TextEncoder().encode('PhantomChat-Hybrid-E2E-v2'), info: new TextEncoder().encode('AES-256-GCM') },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt', 'decrypt']
+      );
       setSharedKey(shared);
     },
     [keyPair]

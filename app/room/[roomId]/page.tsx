@@ -108,7 +108,7 @@ export default function HomeRoom() {
           isProcessingRef.current = true;
           console.log('🔑 Processing as RESPONDER (received ciphertext)');
           await setOtherPublicKeys(
-            { ecdh: otherKeyData.ecdh, kyber: otherKeyData.kyber },
+            { ecdh: otherKeyData.ecdh, kyber: otherKeyData.kyber, dsa: otherKeyData.dsa ?? undefined },
             otherKeyData.kyberCiphertext
           );
           console.log('✅ Encryption ready as responder!');
@@ -120,6 +120,7 @@ export default function HomeRoom() {
           await setOtherPublicKeys({
             ecdh: otherKeyData.ecdh,
             kyber: otherKeyData.kyber,
+            dsa: otherKeyData.dsa ?? undefined,
           });
           console.log('✅ Encryption ready as initiator!');
         } else {
@@ -153,14 +154,16 @@ export default function HomeRoom() {
   }, [isEncryptionReady]);
 
   // Decrypter un message (avec cache)
-  const getDecryptedText = async (msg: { id: string; text: string }) => {
+  const getDecryptedText = async (msg: { id: string; text: string; signature?: string }) => {
     if (isEncryptionReady && decryptedCache.current.has(msg.id)) {
       return decryptedCache.current.get(msg.id)!;
     }
 
     if (isEncryptionReady) {
       try {
-        const decryptedText = await decrypt(msg.text);
+        const result = await decrypt(msg.text, msg.signature);
+        // null = signature invalide → afficher avertissement
+        const decryptedText = result ?? '⚠️ Message rejected: invalid signature';
         decryptedCache.current.set(msg.id, decryptedText);
         return decryptedText;
       } catch {
@@ -196,7 +199,7 @@ export default function HomeRoom() {
       const results = await Promise.all(
         messages.messages.map(async (msg) => ({
           ...msg,
-          text: await getDecryptedText(msg),
+          text: await getDecryptedText({ id: msg.id, text: msg.text, signature: msg.signature }),
         }))
       );
 
@@ -241,13 +244,17 @@ export default function HomeRoom() {
     if (!input.trim()) return;
 
     let textToSend = input;
+    let signature: string | undefined;
 
     if (isEncryptionReady) {
-      textToSend = await encrypt(input);
+      const result = await encrypt(input);
+      textToSend = result.ciphertext;
+      signature = result.signature;
     }
 
     sendMessage({
       text: textToSend,
+      signature,
       sender: username,
       roomId,
       messageType: 'text',
@@ -274,12 +281,13 @@ export default function HomeRoom() {
         maxSizeBytes: 20 * 1024 * 1024,
       });
 
-      // 2. Chiffrer le base64 de l'image
-      const encryptedImage = await encrypt(processed.base64);
+      // 2. Chiffrer et signer le base64 de l'image
+      const { ciphertext: encryptedImage, signature } = await encrypt(processed.base64);
 
       // 3. Envoyer comme message de type "image"
       sendMessage({
         text: encryptedImage,
+        signature,
         sender: username,
         roomId,
         messageType: 'image',

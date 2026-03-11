@@ -1,10 +1,9 @@
 // lib/crypto/index.ts
 // Export centralise de toutes les fonctions crypto
 
-// ECDH classique (pour compatibilite)
+// X25519 (pour compatibilite)
 export {
   generateKeyPair,
-  deriveSharedKey,
   exportPublicKey,
   importPublicKey,
 } from './key';
@@ -34,3 +33,29 @@ export {
 
 // Chiffrement AES-256-GCM
 export { encryptMessage, decryptMessage } from './encrypt';
+
+// Double Ratchet
+export {
+  initRatchet,
+  ratchetEncrypt,
+  ratchetDecrypt,
+  saveRatchetState,
+  loadRatchetState,
+  clearRatchetState,
+  type RatchetState,
+  type RatchetMessage,
+  type RatchetHeader,
+} from './ratchet';
+
+// ML-DSA (signatures post-quantiques)
+export {
+  generateDSAKeyPair,
+  exportDSAPublicKey,
+  importDSAPublicKey,
+  exportDSAKeyPairForStorage,
+  importDSAKeyPairFromStorage,
+  signMessage,
+  verifyMessage,
+  type DSAKeyPair,
+  type StoredDSAKeys,
+} from './dsa';

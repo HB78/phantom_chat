@@ -1,3 +1,10 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(cd C:/Users/batto/Desktop/chatrealtime && node -e \"const { x25519 } = require\\('@noble/curves/ed25519.js'\\); console.log\\(Object.keys\\(x25519\\)\\); console.log\\(Object.keys\\(x25519.utils\\)\\)\")",
+      "Bash(cd C:/Users/batto/Desktop/chatrealtime && node -e \"const pq = require\\('@noble/post-quantum'\\); console.log\\(Object.keys\\(pq\\)\\)\")",
+      "Bash(cd C:/Users/batto/Desktop/chatrealtime && npx tsc --noEmit 2>&1)"
+    ]
+  },
   "forceLoginMethod": "claudeai"
 }
