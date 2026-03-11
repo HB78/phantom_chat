@@ -190,21 +190,14 @@ interface UseHybridEncryptionReturn {
   isInitiator: boolean;
   /** Ciphertext Kyber a envoyer (seulement pour l'initiateur) */
   kyberCiphertext: string | null;
-  /**
-   * Appeler avec les cles publiques de l'autre user pour activer le chiffrement
-   * @param keys - Cles publiques de l'autre user (ecdh + kyber + dsa optionnel)
-   * @param kyberCiphertext - Ciphertext Kyber (seulement pour le destinataire)
-   */
   setOtherPublicKeys: (
     keys: { ecdh: string; kyber: string; dsa?: string },
     kyberCiphertext?: string
   ) => Promise<void>;
+  /** Met à jour uniquement la clé DSA de l'autre user (sans réinitialiser le ratchet) */
+  updateOtherDsaKey: (dsaPublicKeyB64: string) => void;
   /** Chiffre un message et retourne { ciphertext, signature } */
   encrypt: (message: string) => Promise<{ ciphertext: string; signature: string }>;
-  /**
-   * Dechiffre un message apres verification de la signature
-   * @returns Le message dechiffre, ou null si la signature est invalide
-   */
   decrypt: (ciphertext: string, signature?: string) => Promise<string | null>;
   /** Nettoie les cles stockees */
   clearKeys: () => void;
@@ -353,6 +346,13 @@ export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn 
     [keyPair, roomId]
   );
 
+  // 2b. Mettre à jour uniquement la clé DSA de l'autre (sans toucher au ratchet)
+  const updateOtherDsaKey = useCallback((dsaPublicKeyB64: string) => {
+    const key = importDSAPublicKey(dsaPublicKeyB64);
+    setOtherDsaPublicKey(key);
+    if (roomId) saveOtherDSAPublicKey(roomId, key);
+  }, [roomId]);
+
   // 3. Chiffrer avec Double Ratchet + signer avec ML-DSA
   const encrypt = useCallback(
     async (message: string): Promise<{ ciphertext: string; signature: string }> => {
@@ -440,6 +440,7 @@ export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn 
     isInitiator,
     kyberCiphertext,
     setOtherPublicKeys,
+    updateOtherDsaKey,
     encrypt,
     decrypt,
     clearKeys,

@@ -52,6 +52,7 @@ export default function HomeRoom() {
     isInitiator,
     kyberCiphertext,
     setOtherPublicKeys,
+    updateOtherDsaKey,
     encrypt,
     decrypt,
     clearKeys,
@@ -86,6 +87,12 @@ export default function HomeRoom() {
   // 2. Recevoir les cles de l'autre user et etablir le chiffrement
   useEffect(() => {
     const processKeyExchange = async () => {
+      // Si chiffrement déjà prêt mais clé DSA reçue → la stocker sans réinitialiser
+      if (isEncryptionReady && otherKeyData?.dsa) {
+        updateOtherDsaKey(otherKeyData.dsa);
+        return;
+      }
+
       // Skip if already ready or currently processing
       if (isEncryptionReady || isProcessingRef.current) return;
 

@@ -250,14 +250,12 @@ export async function initRatchet(
   let sendChainKey: Uint8Array | null = null;
   let recvDHPublicKey: Uint8Array | null = null;
 
-  if (isInitiator) {
-    // L'initiateur fait le premier tour DH immédiatement
-    const dhSecret = x25519.getSharedSecret(sendDHPrivateKey, otherDHPublic);
-    const derived = await kdfRoot(rootKey, dhSecret);
-    rootKey = derived.newRootKey;
-    sendChainKey = derived.chainKey;
-    recvDHPublicKey = otherDHPublic;
-  }
+  // Les deux users font un tour DH initial pour initialiser leur sendChainKey
+  const dhSecret = x25519.getSharedSecret(sendDHPrivateKey, otherDHPublic);
+  const derived = await kdfRoot(rootKey, dhSecret);
+  rootKey = derived.newRootKey;
+  sendChainKey = derived.chainKey;
+  recvDHPublicKey = otherDHPublic;
 
   return {
     rootKey,
