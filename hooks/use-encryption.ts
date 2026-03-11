@@ -211,6 +211,7 @@ export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn 
   const [kyberCiphertext, setKyberCiphertext] = useState<string | null>(null);
   const [dsaKeyPair, setDsaKeyPair] = useState<DSAKeyPair | null>(null);
   const [otherDsaPublicKey, setOtherDsaPublicKey] = useState<Uint8Array | null>(null);
+  const otherDsaPublicKeyRef = useRef<Uint8Array | null>(null);
   const ratchetRef = useRef<RatchetState | null>(null);
 
   // Ref pour eviter les doubles initialisations en mode strict
@@ -239,7 +240,10 @@ export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn 
             if (storedDsa) setDsaKeyPair(storedDsa);
             // Restaurer la clé DSA de l'autre user
             const storedOtherDsa = loadOtherDSAPublicKey(roomId);
-            if (storedOtherDsa) setOtherDsaPublicKey(storedOtherDsa);
+            if (storedOtherDsa) {
+              setOtherDsaPublicKey(storedOtherDsa);
+              otherDsaPublicKeyRef.current = storedOtherDsa;
+            }
             // Restaurer le ratchet
             const storedRatchet = loadRatchetState(roomId);
             if (storedRatchet) ratchetRef.current = storedRatchet;
@@ -334,6 +338,7 @@ export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn 
       if (otherKeys.dsa) {
         const otherDsaKey = importDSAPublicKey(otherKeys.dsa);
         setOtherDsaPublicKey(otherDsaKey);
+        otherDsaPublicKeyRef.current = otherDsaKey;
         if (roomId) saveOtherDSAPublicKey(roomId, otherDsaKey);
       }
 
@@ -350,6 +355,7 @@ export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn 
   const updateOtherDsaKey = useCallback((dsaPublicKeyB64: string) => {
     const key = importDSAPublicKey(dsaPublicKeyB64);
     setOtherDsaPublicKey(key);
+    otherDsaPublicKeyRef.current = key;
     if (roomId) saveOtherDSAPublicKey(roomId, key);
   }, [roomId]);
 
@@ -392,8 +398,9 @@ export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn 
       }
 
       // Vérifier la signature ML-DSA si disponible
-      if (signature && otherDsaPublicKey) {
-        const isValid = verifyMessage(ciphertext, signature, otherDsaPublicKey);
+      const dsaKey = otherDsaPublicKeyRef.current;
+      if (signature && dsaKey) {
+        const isValid = verifyMessage(ciphertext, signature, dsaKey);
         if (!isValid) {
           console.warn('❌ Invalid DSA signature — message rejected');
           return null;
