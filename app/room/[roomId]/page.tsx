@@ -45,6 +45,10 @@ export default function HomeRoom() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
 
+  // Cache texte clair des messages envoyés par moi (ciphertext → plaintext)
+  // Permet d'afficher ses propres messages sans appeler decrypt (évite de désynchroniser le ratchet)
+  const ownMessageCache = useRef<Map<string, string>>(new Map());
+
   // ============ E2E HYBRID ENCRYPTION (ECDH + KYBER) ============
   const {
     isReady: isEncryptionReady,
@@ -162,15 +166,26 @@ export default function HomeRoom() {
 
   // Decrypter un message (avec cache)
   const getDecryptedText = async (msg: { id: string; text: string; signature?: string; isOwn?: boolean }) => {
-    if (isEncryptionReady && decryptedCache.current.has(msg.id)) {
+    if (decryptedCache.current.has(msg.id)) {
       return decryptedCache.current.get(msg.id)!;
     }
 
     if (isEncryptionReady) {
+      // Ses propres messages : ne PAS appeler decrypt
+      // Évite d'avancer le ratchet de réception et désynchroniser les clés
+      if (msg.isOwn) {
+        // Chercher par ciphertext (unique grâce à l'IV aléatoire AES-GCM)
+        const plaintext = ownMessageCache.current.get(msg.text);
+        if (plaintext !== undefined) {
+          decryptedCache.current.set(msg.id, plaintext);
+          return plaintext;
+        }
+        // Après refresh : impossible de redéchiffrer (ratchet avancé, clé détruite)
+        return '🔒';
+      }
+
       try {
-        // Ne pas vérifier la signature pour ses propres messages (clé DSA stockée = celle de l'autre)
-        const result = await decrypt(msg.text, msg.isOwn ? undefined : msg.signature);
-        // null = signature invalide → afficher avertissement
+        const result = await decrypt(msg.text, msg.signature);
         const decryptedText = result ?? '⚠️ Message rejected: invalid signature';
         decryptedCache.current.set(msg.id, decryptedText);
         return decryptedText;
@@ -258,6 +273,8 @@ export default function HomeRoom() {
       const result = await encrypt(input);
       textToSend = result.ciphertext;
       signature = result.signature;
+      // Mémoriser le texte clair pour l'affichage (ciphertext → plaintext)
+      ownMessageCache.current.set(textToSend, input);
     }
 
     sendMessage({
@@ -291,6 +308,9 @@ export default function HomeRoom() {
 
       // 2. Chiffrer et signer le base64 de l'image
       const { ciphertext: encryptedImage, signature } = await encrypt(processed.base64);
+
+      // Mémoriser le base64 original pour l'affichage
+      ownMessageCache.current.set(encryptedImage, processed.base64);
 
       // 3. Envoyer comme message de type "image"
       sendMessage({
