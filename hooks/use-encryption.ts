@@ -58,6 +58,20 @@ function loadDSAKeysFromStorage(roomId: string): DSAKeyPair | null {
   }
 }
 
+function saveOtherDSAPublicKey(roomId: string, key: Uint8Array): void {
+  localStorage.setItem(`${STORAGE_DSA_PREFIX}${roomId}_other`, btoa(String.fromCharCode(...key)));
+}
+
+function loadOtherDSAPublicKey(roomId: string): Uint8Array | null {
+  try {
+    const stored = localStorage.getItem(`${STORAGE_DSA_PREFIX}${roomId}_other`);
+    if (!stored) return null;
+    return Uint8Array.from(atob(stored), c => c.charCodeAt(0));
+  } catch {
+    return null;
+  }
+}
+
 interface StoredSharedKey {
   key: JsonWebKey;
   isInitiator: boolean;
@@ -230,6 +244,9 @@ export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn 
             setKyberCiphertext(storedShared.kyberCiphertext);
             const storedDsa = loadDSAKeysFromStorage(roomId);
             if (storedDsa) setDsaKeyPair(storedDsa);
+            // Restaurer la clé DSA de l'autre user
+            const storedOtherDsa = loadOtherDSAPublicKey(roomId);
+            if (storedOtherDsa) setOtherDsaPublicKey(storedOtherDsa);
             // Restaurer le ratchet
             const storedRatchet = loadRatchetState(roomId);
             if (storedRatchet) ratchetRef.current = storedRatchet;
@@ -322,7 +339,9 @@ export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn 
 
       // Stocker la cle publique DSA de l'autre
       if (otherKeys.dsa) {
-        setOtherDsaPublicKey(importDSAPublicKey(otherKeys.dsa));
+        const otherDsaKey = importDSAPublicKey(otherKeys.dsa);
+        setOtherDsaPublicKey(otherDsaKey);
+        if (roomId) saveOtherDSAPublicKey(roomId, otherDsaKey);
       }
 
       // Sauvegarder
@@ -409,6 +428,7 @@ export function useHybridEncryption(roomId?: string): UseHybridEncryptionReturn 
     if (roomId) {
       clearEncryptionKeys(roomId);
       localStorage.removeItem(`${STORAGE_DSA_PREFIX}${roomId}`);
+      localStorage.removeItem(`${STORAGE_DSA_PREFIX}${roomId}_other`);
       clearRatchetState(roomId);
     }
     ratchetRef.current = null;

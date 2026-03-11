@@ -23,6 +23,7 @@
   <img src="https://img.shields.io/badge/Tailwind-4-38B2AC?style=flat-square&logo=tailwind-css" alt="Tailwind" />
   <img src="https://img.shields.io/badge/Redis-Upstash-red?style=flat-square&logo=redis" alt="Redis" />
   <img src="https://img.shields.io/badge/Encryption-AES--256--GCM-green?style=flat-square&logo=lock" alt="Encryption" />
+  <img src="https://img.shields.io/badge/Post--Quantum-ML--KEM%20%2B%20ML--DSA-purple?style=flat-square" alt="Post-Quantum" />
 </p>
 
 ---
@@ -44,7 +45,11 @@
 | Feature | Description |
 |---------|-------------|
 | **AES-256-GCM** | Military-grade symmetric encryption |
-| **ECDH Key Exchange** | Secure key negotiation using P-256 curve |
+| **X25519 + ML-KEM-768** | Hybrid key exchange (classical + post-quantum) |
+| **Double Ratchet** | Signal-grade protocol — unique key per message |
+| **ML-DSA-44** | Post-quantum signature on every message (FIPS 204) |
+| **Forward Secrecy** | Past messages safe even if current key is compromised |
+| **Break-in Recovery** | Future messages safe after a compromise |
 | **Zero-Knowledge** | Server never sees plaintext or encryption keys |
 | **No Logs** | No IP addresses or metadata stored |
 
@@ -82,9 +87,11 @@
 - **[Upstash Realtime](https://upstash.com/)** - WebSocket connections
 
 ### Security
-- **[Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API)** - Browser-native cryptography
-- **AES-256-GCM** - Symmetric encryption
-- **ECDH P-256** - Key exchange
+- **[Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API)** - HKDF-SHA256, AES-256-GCM
+- **[mlkem](https://github.com/nicowillis/mlkem)** - ML-KEM-768 (Kyber, post-quantum key exchange)
+- **[@noble/curves](https://github.com/paulmillr/noble-curves)** - X25519 (Diffie-Hellman key exchange)
+- **[@noble/post-quantum](https://github.com/paulmillr/noble-post-quantum)** - ML-DSA-44 (post-quantum signatures)
+- **Double Ratchet** - Signal-grade forward secrecy protocol
 
 ---
 
@@ -186,29 +193,35 @@ phantom-chat/
 ```
 User A                          Server                          User B
   │                               │                               │
-  │  1. Generate ECDH keypair     │                               │
+  │  1. Generate X25519 + Kyber   │                               │
+  │     + ML-DSA keypairs         │                               │
   │─────────────────────────────▶ │                               │
-  │     Send public key           │                               │
-  │                               │  2. Store public key          │
+  │     Send public keys          │                               │
+  │                               │  2. Store public keys         │
   │                               │                               │
-  │                               │  3. Generate ECDH keypair     │
+  │                               │  3. Generate X25519 + Kyber   │
+  │                               │     + ML-DSA keypairs         │
   │                               │ ◀─────────────────────────────│
-  │                               │     Send public key           │
+  │                               │     Send public keys          │
   │                               │                               │
-  │  4. Receive B's public key    │                               │
+  │  4. Receive B's public keys   │                               │
   │◀───────────────────────────── │ ─────────────────────────────▶│
-  │                               │  4. Receive A's public key    │
+  │                               │  4. Receive A's public keys   │
   │                               │                               │
   │  5. Derive shared secret      │     5. Derive shared secret   │
-  │     (ECDH)                    │        (ECDH)                 │
+  │     X25519 + Kyber → HKDF     │        X25519 + Kyber → HKDF  │
   │                               │                               │
-  │  6. Encrypt message           │                               │
-  │     (AES-256-GCM)             │                               │
+  │  6. Init Double Ratchet       │     6. Init Double Ratchet    │
+  │     (rootKey from HKDF)       │        (rootKey from HKDF)    │
+  │                               │                               │
+  │  7. Encrypt message           │                               │
+  │     Ratchet → unique key      │                               │
+  │     AES-256-GCM + ML-DSA sig  │                               │
   │─────────────────────────────▶ │ ─────────────────────────────▶│
-  │     Send ciphertext           │     Forward ciphertext        │
+  │     Send ciphertext+signature │     Forward ciphertext        │
   │                               │                               │
-  │                               │     7. Decrypt message        │
-  │                               │        (AES-256-GCM)          │
+  │                               │     8. Verify ML-DSA sig      │
+  │                               │        Decrypt AES-256-GCM    │
 ```
 
 ---
@@ -220,10 +233,15 @@ User A                          Server                          User B
 | Component | Specification |
 |-----------|---------------|
 | Symmetric Encryption | AES-256-GCM |
-| Key Exchange | ECDH with P-256 curve |
-| Key Derivation | HKDF-SHA256 |
+| Classical Key Exchange | X25519 (Curve25519) |
+| Post-Quantum Key Exchange | ML-KEM-768 (Kyber) |
+| Key Derivation | HKDF-SHA256 (combines X25519 + Kyber secrets) |
+| Message Protocol | Double Ratchet (Signal-grade) |
+| Message Signatures | ML-DSA-44 (FIPS 204, post-quantum) |
 | IV Size | 96 bits (unique per message) |
 | Auth Tag | 128 bits |
+| Forward Secrecy | Yes (ratchet destroys keys after use) |
+| Break-in Recovery | Yes (DH ratchet step on every exchange) |
 
 ### What We CAN'T See
 
