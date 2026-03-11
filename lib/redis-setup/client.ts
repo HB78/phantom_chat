@@ -13,6 +13,6 @@ import type { App } from '../../app/api/[[...slugs]]/route';
  */
 
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? 'https://phantomchat.app';
+  process.env.NEXT_PUBLIC_API_URL ?? '';
 
 export const client = treaty<App>(API_URL).api;
