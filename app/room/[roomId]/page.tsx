@@ -83,7 +83,6 @@ export default function HomeRoom() {
   // 1. Envoyer mes cles publiques hybrides quand elles sont pretes
   useEffect(() => {
     if (publicKeys) {
-      console.log('📤 Sending my public keys to server');
       sendHybridPublicKeys({ roomId, publicKeys });
     }
   }, [publicKeys, roomId, sendHybridPublicKeys]);
@@ -101,46 +100,24 @@ export default function HomeRoom() {
       if (isEncryptionReady || isProcessingRef.current) return;
 
       // Attendre d'avoir les cles de l'autre
-      if (!otherKeyData?.ecdh || !otherKeyData?.kyber) {
-        console.log("⏳ Waiting for other user's keys...");
-        return;
-      }
-
-      console.log("📥 Received other user's keys", {
-        hasEcdh: !!otherKeyData.ecdh,
-        hasKyber: !!otherKeyData.kyber,
-        hasCiphertext: !!otherKeyData.kyberCiphertext,
-        shouldBeInitiator: otherKeyData.shouldBeInitiator,
-      });
+      if (!otherKeyData?.ecdh || !otherKeyData?.kyber) return;
 
       try {
-        // Si j'ai un ciphertext, je suis le DESTINATAIRE (responder)
         if (otherKeyData.kyberCiphertext) {
           isProcessingRef.current = true;
-          console.log('🔑 Processing as RESPONDER (received ciphertext)');
           await setOtherPublicKeys(
             { ecdh: otherKeyData.ecdh, kyber: otherKeyData.kyber, dsa: otherKeyData.dsa ?? undefined },
             otherKeyData.kyberCiphertext
           );
-          console.log('✅ Encryption ready as responder!');
-        }
-        // Sinon, si je dois etre l'INITIATEUR (selon le serveur)
-        else if (otherKeyData.shouldBeInitiator) {
+        } else if (otherKeyData.shouldBeInitiator) {
           isProcessingRef.current = true;
-          console.log('🔑 Processing as INITIATOR (will send ciphertext)');
           await setOtherPublicKeys({
             ecdh: otherKeyData.ecdh,
             kyber: otherKeyData.kyber,
             dsa: otherKeyData.dsa ?? undefined,
           });
-          console.log('✅ Encryption ready as initiator!');
-        } else {
-          // Ne PAS mettre isProcessingRef à true ici - permettre le retry au prochain refetch
-          console.log('⏳ Waiting for initiator to send ciphertext...');
         }
-      } catch (err) {
-        console.error('❌ Key exchange error:', err);
-        // Reset processing flag on error to allow retry
+      } catch {
         isProcessingRef.current = false;
       }
     };
@@ -151,7 +128,6 @@ export default function HomeRoom() {
   // 3. Envoyer le ciphertext Kyber si je suis l'initiateur
   useEffect(() => {
     if (isInitiator && kyberCiphertext && !hasSentCiphertextRef.current) {
-      console.log('📤 Sending Kyber ciphertext to other user');
       hasSentCiphertextRef.current = true;
       sendKyberCiphertext({ roomId, kyberCiphertext });
     }
@@ -252,12 +228,8 @@ export default function HomeRoom() {
         router.push('/create?destroyed=true');
       }
 
-      // Refetch keys when other user sends their keys or ciphertext
       if (event === 'chat.keyExchange' || event === 'chat.kyberCiphertext') {
-        console.log(`🔔 Received ${event} event, refetching keys...`);
-        refetchKeys().then((result) => {
-          console.log('📦 Refetch result:', result.data);
-        });
+        refetchKeys();
       }
     },
   });
